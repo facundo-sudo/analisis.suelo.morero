@@ -57,6 +57,7 @@
     <section class="tarjeta" id="sec-eval">
       <h2><span class="num">3</span> Evaluación</h2>
       <div class="pestanas" role="tablist">
+        <button type="button" role="tab" class="pestana" data-vista="panel">Panel experto</button>
         <button type="button" role="tab" class="pestana" data-vista="general">General</button>
         <button type="button" role="tab" class="pestana" data-vista="campo">Por campo</button>
         <button type="button" role="tab" class="pestana" data-vista="nutriente">Por nutriente</button>
@@ -65,12 +66,10 @@
 
       <div id="vista-opciones" class="grilla vista-opciones"></div>
 
+      <div id="panel-kpis" class="kpis"></div>
+      <div id="panel-conclusiones" class="conclusiones"></div>
       <div id="eval-texto" class="eval-texto"></div>
-      <div class="grafico-caja">
-        <canvas id="grafico" role="img" aria-label="Gráfico de la evaluación"></canvas>
-        <div id="grafico-tip" class="grafico-tip" hidden></div>
-      </div>
-      <div id="grafico-leyenda" class="leyenda"></div>
+      <div id="graficos" class="graficos"></div>
       <div id="eval-tabla" class="tabla-caja"></div>
 
       <div class="botones acciones">

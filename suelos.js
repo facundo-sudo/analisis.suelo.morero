@@ -171,7 +171,7 @@
   }
 
   // ---------- Filtros ----------
-  var estado = { vista: 'general', campo: '', ensSel: null, compPor: 'campania' };
+  var estado = { vista: 'panel', campo: '', ensSel: null, compPor: 'campania' };
 
   function filtrados() {
     var t = norm($('f-texto').value), c = $('f-campo').value, ca = $('f-campania').value, an = $('f-anio').value;
@@ -213,7 +213,8 @@
     ['bajo', 'medio', 'bien', 'alto'].forEach(function (k) { if (s.cuenta[k]) p.push(pct(s.cuenta[k], s.n) + '% ' + NOMBRE_ESTADO[k].toLowerCase()); });
     return p.join(' · ');
   }
-  function nombreProblema(n) { return n.tipo === 'menos' ? 'elevado' : n.id === 'ph' ? 'ácido' : 'bajo'; }
+  function femenino(n) { return /^(materia|capacidad|conductividad|saturaci|relaci|arena|arcilla|humedad)/i.test(norm(n.nombre)); }
+  function nombreProblema(n) { var f = femenino(n); return n.tipo === 'menos' ? (f ? 'elevada' : 'elevado') : n.id === 'ph' ? 'ácido' : (f ? 'baja' : 'bajo'); }
 
   function puntosDeConjunto(lista, nuts) {
     var puntos = [], bien = [];
@@ -450,11 +451,359 @@
     return r;
   }
 
+  // =====================================================================
+  // ---------- Panel experto: diagnóstico agronómico automático ----------
+  // Reglas de interpretación de suelos (sin servicios externos). Todo es orientativo.
+  // =====================================================================
+  var CLAVE_PANEL = 'suelos.panel';
+  var panelCfg = Object.assign({ pObj: null, factorP: 3, xDisp: '', yDisp: '', ranking: 'bajos' }, leer(CLAVE_PANEL, {}) || {});
+  function guardarPanel() { guardar(CLAVE_PANEL, panelCfg); }
+
+  var NIVELES = {
+    critico: { t: 'Crítico', icono: '!', orden: 0 },
+    atencion: { t: 'Atención', icono: '▲', orden: 1 },
+    info: { t: 'Dato', icono: 'i', orden: 2 },
+    bien: { t: 'Fortaleza', icono: '✓', orden: 3 }
+  };
+  var PUNTAJE = { bien: 100, medio: 60, alto: 60, bajo: 20 };
+  var CLAVE_INDICE = ['p', 'n', 's', 'zn', 'mo', 'ph', 'ce', 'b', 'psi'];
+
+  // Ambiente a partir del nombre del lote (LOMA, M.LOMA, BAJO, ALTA P, etc.)
+  function ambienteDe(r) {
+    var t = ' ' + norm(r.lote) + ' ';
+    if (/ (m loma|media loma|medialoma|mloma|ml) /.test(t)) return 'Media loma';
+    if (/ (bajo|bajos|bajo alto|tendido) /.test(t)) return 'Bajo';
+    if (/ (loma|lomas) /.test(t)) return 'Loma';
+    if (/ alta( p| prod| productividad)? /.test(t)) return 'Alta productividad';
+    if (/ media( p| prod| productividad) /.test(t)) return 'Media productividad';
+    if (/ baja( p| prod| productividad)? /.test(t)) return 'Baja productividad';
+    return '';
+  }
+  var ORDEN_AMB = ['Loma', 'Media loma', 'Bajo', 'Alta productividad', 'Media productividad', 'Baja productividad'];
+  var FAMILIAS_AMB = [['Loma', 'Media loma', 'Bajo'], ['Alta productividad', 'Media productividad', 'Baja productividad']];
+  // Devuelve la familia de ambientes con datos suficientes (primero relieve, después productividad).
+  function familiaAmbientes(lista, minimo) {
+    for (var i = 0; i < FAMILIAS_AMB.length; i++) {
+      var f = FAMILIAS_AMB[i].filter(function (a) { return lista.filter(function (x) { return ambienteDe(x) === a; }).length >= minimo; });
+      if (f.length >= 2) return f;
+    }
+    return [];
+  }
+
+  function indiceMuestra(r) {
+    var pts = [];
+    CLAVE_INDICE.forEach(function (id) {
+      var n = nutPorId(id);
+      if (!n || n.tipo === 'info' || r.v[id] == null) return;
+      var c = clasificar(n, r.v[id]);
+      if (c) pts.push(PUNTAJE[c.k]);
+    });
+    return pts.length >= 2 ? promedio(pts) : null;
+  }
+  function nivelIndice(v) { return v == null ? null : v < 50 ? 'bajo' : v < 75 ? 'medio' : 'bien'; }
+  function textoIndice(v) { return v == null ? '–' : v < 50 ? 'Bajo' : v < 75 ? 'Medio' : 'Bueno'; }
+
+  function pearson(xs, ys) {
+    var n = xs.length; if (n < 3) return null;
+    var mx = promedio(xs), my = promedio(ys), sxy = 0, sxx = 0, syy = 0;
+    for (var i = 0; i < n; i++) { var dx = xs[i] - mx, dy = ys[i] - my; sxy += dx * dy; sxx += dx * dx; syy += dy * dy; }
+    if (!sxx || !syy) return null;
+    return { r: sxy / Math.sqrt(sxx * syy), b: sxy / sxx, a: my - (sxy / sxx) * mx };
+  }
+  function cuantil(arr, q) { var s = arr.slice().sort(function (a, b) { return a - b; }); var p = (s.length - 1) * q, i = Math.floor(p); return s[i] + (s[Math.min(i + 1, s.length - 1)] - s[i]) * (p - i); }
+  function desvio(arr) { var m = promedio(arr); return Math.sqrt(promedio(arr.map(function (x) { return (x - m) * (x - m); }))); }
+  function valoresDe(lista, id) { return lista.map(function (r) { return r.v[id]; }).filter(function (v) { return v != null; }); }
+  function listarCorto(arr, max) { max = max || 4; return arr.slice(0, max).join(', ') + (arr.length > max ? ' y ' + (arr.length - max) + ' más' : ''); }
+  // Para cada campo, sus muestras de la campaña más reciente (dentro de la búsqueda).
+  function ultimaCampaniaPorCampo(lista) {
+    var porCampo = {};
+    lista.forEach(function (r) { (porCampo[r.campo] = porCampo[r.campo] || []).push(r); });
+    return Object.keys(porCampo).sort(ordenarTexto).map(function (c) {
+      var l = porCampo[c], camps = unico(l.map(function (x) { return x.campania; })).sort(ordenarTexto), ult = camps[camps.length - 1];
+      return { campo: c, campania: ult, muestras: l.filter(function (x) { return x.campania === ult; }), todas: l, campanias: camps };
+    });
+  }
+
+  function vistaPanel(lista) {
+    var r = { titulo: 'Panel experto: diagnóstico de suelos', puntos: [], tablas: [], graficos: [], kpis: [], conclusiones: [] };
+    if (!lista.length) { r.puntos.push('No hay análisis que coincidan con la búsqueda. Cargá datos o cambiá los filtros.'); return r; }
+    var C = r.conclusiones;
+    function concluir(nivel, titulo, texto, accion) { C.push({ nivel: nivel, titulo: titulo, texto: texto, accion: accion || '' }); }
+    var nP = nutPorId('p'), pObj = panelCfg.pObj != null ? panelCfg.pObj : (nP ? Number(nP.alto) : 20);
+    var evaluables = nutsConDatos(lista).filter(function (n) { return n.tipo !== 'info'; });
+    var campos = unico(lista.map(function (x) { return x.campo; })), camps = unico(lista.map(function (x) { return x.campania; })).sort(ordenarTexto);
+
+    // ----- Indicadores -----
+    var indices = lista.map(indiceMuestra).filter(function (v) { return v != null; });
+    var indProm = promedio(indices);
+    r.kpis.push({ t: 'Muestras analizadas', v: String(lista.length), sub: campos.length + ' campos · ' + camps.length + ' campañas' });
+    r.kpis.push({ t: 'Índice de fertilidad', v: indProm == null ? '–' : String(Math.round(indProm)), sub: indProm == null ? 'Faltan datos' : textoIndice(indProm) + ' (0 a 100)', k: nivelIndice(indProm) });
+    var limitantes = evaluables.map(function (n) { var s = estad(n, lista); return { n: n, s: s, pb: s.n ? s.cuenta.bajo / s.n : 0 }; })
+      .filter(function (o) { return o.s.n >= 3; }).sort(function (a, b) { return b.pb - a.pb; });
+    if (limitantes.length && limitantes[0].pb > 0) {
+      var L = limitantes[0];
+      r.kpis.push({ t: 'Principal limitante', v: L.n.corto, sub: Math.round(L.pb * 100) + '% de las muestras en nivel ' + nombreProblema(L.n), k: L.pb >= 0.5 ? 'bajo' : 'medio' });
+    }
+    ['p', 'mo'].forEach(function (id) {
+      var n = nutPorId(id); if (!n) return;
+      var s = estad(n, lista); if (!s.n) return;
+      var med = cuantil(valoresDe(lista, id), 0.5), cm = clasificar(n, med);
+      r.kpis.push({ t: n.nombre + ' (mediana)', v: fmt(med) + (n.unidad ? ' ' + n.unidad : ''), sub: pct(s.cuenta.bajo, s.n) + '% ' + nombreProblema(n) + ' · promedio ' + fmt(s.prom), k: cm && cm.k });
+    });
+    var nPh = nutPorId('ph');
+    if (nPh) { var sph = estad(nPh, lista); if (sph.n) r.kpis.push({ t: 'pH', v: fmt(sph.prom, 1), sub: pct(sph.cuenta.bien, sph.n) + '% en rango óptimo', k: sph.estado && sph.estado.k }); }
+
+    // ----- 1. Deficiencias -----
+    limitantes.forEach(function (o) {
+      var n = o.n, s = o.s, u = n.unidad ? ' ' + n.unidad : '', p100 = Math.round(o.pb * 100);
+      if (n.id === 'ph' || n.tipo === 'menos') return;
+      if (o.pb < 0.25) return;
+      if (n.id === 'ct' && valoresDe(lista, 'mo').length) return;   // el carbono es la MO / 1,724: no repetir
+      var camposAf = campos.filter(function (c) { var st = estad(n, lista.filter(function (x) { return x.campo === c; })); return st.estado && st.estado.k === 'bajo'; });
+      var accion = RECOMENDACION[n.id] ? 'Sugerencia: ' + RECOMENDACION[n.id] : 'Evaluar su corrección.';
+      if (n.id === 'p') {
+        var bajos = valoresDe(lista, 'p').filter(function (v) { return v < pObj; });
+        var dosis = bajos.length ? (pObj - promedio(bajos)) * panelCfg.factorP / 0.227 : 0;
+        accion = 'Sugerencia: fertilización fosforada. En las muestras debajo de ' + fmt(pObj) + ' ppm, llevar el P al objetivo requiere en promedio ~' + Math.round(dosis / 5) * 5 + ' kg/ha de fosfato monoamónico (construcción), más la reposición de lo que extrae el cultivo. Ver «Plan de fertilización».';
+      }
+      if (n.id === 'n') accion = 'Sugerencia: el N disponible (0–20 cm) promedio es ~' + Math.round(s.prom * 2.6) + ' kg N/ha; ajustar la dosis de N según cultivo y rendimiento objetivo (en maíz, muestrear también 20–60 cm).';
+      if (n.id === 's') accion = 'Sugerencia: aplicar 10–15 kg S/ha (≈ 60–80 kg/ha de yeso agrícola); el yeso además aporta calcio.';
+      if (n.id === 'mo') accion += ' Con MO baja también baja la estabilidad de los agregados y la retención de agua.';
+      concluir(o.pb >= 0.5 ? 'critico' : 'atencion', n.nombre + ' ' + nombreProblema(n) + ' en el ' + p100 + '% de las muestras',
+        'Promedio ' + fmt(s.prom) + u + ' (' + textoRango(n) + '). ' + (camposAf.length ? camposAf.length + ' campos con promedio bajo: ' + esc(listarCorto(camposAf)) + '.' : ''), accion);
+    });
+
+    // ----- 2. pH, sales y sodio -----
+    if (nPh) {
+      var s2 = estad(nPh, lista);
+      if (s2.n) {
+        var pa = pct(s2.cuenta.bajo, s2.n), pal = pct(s2.cuenta.alto, s2.n);
+        if (pa >= 15) concluir(pa >= 40 ? 'critico' : 'atencion', 'Acidez: ' + pa + '% de las muestras con pH menor a ' + fmt(nPh.bajo),
+          'Con pH bajo baja la disponibilidad de P, Ca y Mg y se afecta la nodulación de leguminosas.', 'Sugerencia: evaluar encalado (dolomita si además el Mg es bajo) en esos lotes.');
+        if (pal >= 15) concluir('atencion', 'Alcalinidad: ' + pal + '% de las muestras con pH mayor a ' + fmt(nPh.alto),
+          'Con pH alto disminuye la disponibilidad de P, Zn, B y Fe.', 'Sugerencia: priorizar fuentes de P localizadas y micronutrientes (Zn, B); el yeso ayuda si hay sodio.');
+        if (pa < 15 && pal < 15 && pct(s2.cuenta.bien, s2.n) >= 70) concluir('bien', 'pH en rango óptimo en el ' + pct(s2.cuenta.bien, s2.n) + '% de las muestras', 'Promedio ' + fmt(s2.prom, 1) + '.');
+      }
+    }
+    ['ce', 'psi'].forEach(function (id) {
+      var n = nutPorId(id); if (!n) return;
+      var s = estad(n, lista); if (!s.n) return;
+      var malos = lista.filter(function (x) { var c = clasificar(n, x.v[id]); return c && c.k !== 'bien'; });
+      var pm = pct(malos.length, s.n);
+      if (pm >= 5) {
+        var cs = unico(malos.map(function (x) { return x.campo; }));
+        concluir(pm >= 20 ? 'critico' : 'atencion', (id === 'ce' ? 'Salinidad' : 'Sodicidad') + ': ' + pm + '% de las muestras con ' + n.corto + ' sobre ' + fmt(n.bajo) + (n.unidad ? ' ' + n.unidad : ''),
+          'Campos: ' + esc(listarCorto(cs)) + '.', id === 'ce' ? 'Sugerencia: elegir cultivos tolerantes (girasol y cebada toleran más que soja y maíz) y mantener cobertura.' : 'Sugerencia: aplicar yeso para desplazar el sodio y cuidar la estructura del suelo.');
+      }
+    });
+
+    // ----- 3. Tendencia en campos con muestreos repetidos -----
+    var porCampo = ultimaCampaniaPorCampo(lista);
+    ['p', 'mo', 'ph'].forEach(function (id) {
+      var n = nutPorId(id); if (!n) return;
+      var cambios = [];
+      porCampo.forEach(function (pc) {
+        var cs = pc.campanias.filter(function (c) { return pc.todas.some(function (x) { return x.campania === c && x.v[id] != null; }); });
+        if (cs.length < 2) return;
+        var a = promedio(valoresDe(pc.todas.filter(function (x) { return x.campania === cs[0]; }), id));
+        var b = promedio(valoresDe(pc.todas.filter(function (x) { return x.campania === cs[cs.length - 1]; }), id));
+        cambios.push({ campo: pc.campo, a: a, b: b, d: a ? (b - a) / Math.abs(a) : 0 });
+      });
+      if (cambios.length < 3) return;
+      var bajan = cambios.filter(function (c) { return c.d <= -0.1; }), suben = cambios.filter(function (c) { return c.d >= 0.1; });
+      var ma = promedio(cambios.map(function (c) { return c.a; })), mb = promedio(cambios.map(function (c) { return c.b; }));
+      var u = n.unidad ? ' ' + n.unidad : '';
+      var texto = 'En ' + cambios.length + ' campos con más de una campaña muestreada, comparando la primera y la última: bajó en ' + bajan.length + ', subió en ' + suben.length + ' y se mantuvo en ' + (cambios.length - bajan.length - suben.length) + ' (promedio de ' + fmt(ma) + ' a ' + fmt(mb) + u + ').';
+      if (id === 'ph') { if (bajan.length > suben.length * 2 && bajan.length >= 3) concluir('atencion', 'El pH tiende a bajar', texto, 'Sugerencia: seguir la acidificación (uso de fertilizantes amoniacales); evaluar encalado de mantenimiento.'); return; }
+      if (bajan.length >= Math.max(3, suben.length * 1.5)) {
+        concluir('atencion', n.nombre + ': tendencia a la baja', texto + (bajan.length ? ' Bajaron más: ' + esc(listarCorto(bajan.sort(function (x, y) { return x.d - y.d; }).map(function (c) { return c.campo + ' (' + Math.round(c.d * 100) + '%)'; }), 3)) + '.' : ''),
+          id === 'p' ? 'Sugerencia: el balance de P es negativo; ajustar la reposición a lo que extraen los cultivos.' : 'Sugerencia: aumentar el aporte de rastrojos (gramíneas, cultivos de servicio) y reducir labranzas.');
+      } else if (suben.length >= Math.max(3, bajan.length * 1.5)) {
+        concluir('bien', n.nombre + ': tendencia a mejorar', texto);
+      } else concluir('info', n.nombre + ': evolución en campos re-muestreados', texto);
+    });
+
+    // ----- 4. Variabilidad dentro del campo (dosis variable) -----
+    if (nP) {
+      var variables = [];
+      porCampo.forEach(function (pc) {
+        var vs = valoresDe(pc.muestras, 'p');
+        if (vs.length < 4) return;
+        var cv = desvio(vs) / promedio(vs);
+        if (cv >= 0.5) variables.push(pc.campo + ' (' + fmt(Math.min.apply(null, vs)) + '–' + fmt(Math.max.apply(null, vs)) + ' ppm)');
+      });
+      if (variables.length) concluir('info', 'Alta variabilidad de fósforo dentro de ' + variables.length + (variables.length === 1 ? ' campo' : ' campos'),
+        'En la última campaña muestreada, el P varía mucho entre lotes o ambientes: ' + esc(listarCorto(variables, 3)) + '.', 'Sugerencia: fertilizar por ambiente o con dosis variable en lugar de una dosis única por campo.');
+    }
+
+    // ----- 5. Ambientes -----
+    var conAmb = lista.filter(function (x) { return ambienteDe(x); });
+    var ambs = familiaAmbientes(conAmb, 5);
+    if (ambs.length >= 2) {
+      ['mo', 'p'].forEach(function (id) {
+        var n = nutPorId(id); if (!n) return;
+        var pr = ambs.map(function (a) { var vs = valoresDe(conAmb.filter(function (x) { return ambienteDe(x) === a; }), id); return { a: a, m: vs.length ? cuantil(vs, 0.5) : null }; }).filter(function (o) { return o.m != null; });
+        if (pr.length < 2) return;
+        pr.sort(function (x, y) { return y.m - x.m; });
+        var dif = (pr[0].m - pr[pr.length - 1].m) / pr[pr.length - 1].m;
+        if (dif >= 0.15) concluir('info', n.nombre + ' según el ambiente (' + (ambs[0] === 'Loma' || ambs[0] === 'Media loma' || ambs[0] === 'Bajo' ? 'relieve' : 'productividad') + ')',
+          'Medianas: ' + pr.map(function (o) { return o.a + ' ' + fmt(o.m) + (n.unidad ? ' ' + n.unidad : ''); }).join(' · ') + ' (' + Math.round(dif * 100) + '% más en ' + pr[0].a.toLowerCase() + ' que en ' + pr[pr.length - 1].a.toLowerCase() + ').',
+          id === 'mo' ? 'Las lomas suelen ser más arenosas y con menos MO: priorizarlas en cobertura y aporte de carbono.' : 'Conviene diferenciar la dosis de P por ambiente.');
+      });
+    }
+
+    // ----- 6. Textura -----
+    var nAr = nutPorId('arena'), nMo = nutPorId('mo');
+    if (nAr && nMo) {
+      var par = lista.filter(function (x) { return x.v.arena != null && x.v.mo != null; });
+      var pe = pearson(par.map(function (x) { return x.v.arena; }), par.map(function (x) { return x.v.mo; }));
+      if (pe && par.length >= 10 && pe.r <= -0.4) concluir('info', 'A más arena, menos materia orgánica (r = ' + fmt(pe.r, 2) + ')',
+        'En ' + par.length + ' muestras con granulometría, cada 10 puntos más de arena la MO baja ~' + fmt(Math.abs(pe.b * 10), 2) + ' %.', 'Los suelos arenosos retienen menos agua y nutrientes: fraccionar N y priorizar cobertura.');
+      var arenosos = valoresDe(lista, 'arena').filter(function (v) { return v >= 70; }).length, nAre = valoresDe(lista, 'arena').length;
+      if (nAre >= 5 && arenosos / nAre >= 0.4) concluir('info', 'Predominan suelos arenosos', pct(arenosos, nAre) + '% de las muestras con granulometría tienen 70% de arena o más (texturas arenoso franca / franco arenosa).', 'Menor capacidad de retención: preferir fertilizaciones fraccionadas y fuentes de baja pérdida.');
+    }
+
+    // ----- 7. Relaciones catiónicas (hoja de referencias) -----
+    var kEnExceso = false;
+    var cat = lista.filter(function (x) { return x.v.ca != null && x.v.mg != null; });
+    if (cat.length >= 5) {
+      var camg = cat.map(function (x) { return x.v.ca / x.v.mg; }).filter(isFinite);
+      var fuera = camg.filter(function (v) { return v < 2 || v > 5; }).length;
+      if (fuera / camg.length >= 0.25) concluir('atencion', 'Relación Ca/Mg fuera de 2 a 5 en el ' + pct(fuera, camg.length) + '% de las muestras', 'Promedio Ca/Mg ' + fmt(promedio(camg), 1) + '. Fuera de ese rango se bloquea la absorción de uno u otro.', promedio(camg) < 2 ? 'Sugerencia: aportar calcio (yeso o calcita).' : 'Sugerencia: aportar magnesio (dolomita).');
+      else concluir('bien', 'Relación Ca/Mg equilibrada', 'Promedio ' + fmt(promedio(camg), 1) + ' (ideal 2 a 5) en ' + camg.length + ' muestras.');
+    }
+    var conK = lista.filter(function (x) { return x.v.k != null && x.v.cic; });
+    if (conK.length >= 5) {
+      var satK = conK.map(function (x) { return x.v.k * 100 / x.v.cic; });
+      var altos = satK.filter(function (v) { return v > 5; }).length;
+      var conMg = conK.filter(function (x) { return x.v.mg != null; }), mgk = conMg.map(function (x) { return x.v.mg / x.v.k; });
+      var mgkF = mgk.filter(function (v) { return v < 2 || v > 4; }).length;
+      var txtMgK = mgk.length >= 5 ? ' La relación Mg/K está fuera de 2 a 4 en el ' + pct(mgkF, mgk.length) + '% (promedio ' + fmt(promedio(mgk), 1) + ').' : '';
+      if (altos / satK.length >= 0.3) {
+        kEnExceso = true;
+        concluir('atencion', 'Potasio en exceso relativo en el ' + pct(altos, satK.length) + '% de las muestras', 'Saturación de K promedio ' + fmt(promedio(satK), 1) + '% de la CIC (ideal 2–5%). El exceso de K compite con la absorción de Ca y Mg.' + txtMgK, 'Sugerencia: evitar fuentes potásicas y priorizar yeso (aporta Ca y S).');
+      } else if (mgk.length >= 5 && mgkF / mgk.length >= 0.4) concluir('info', 'Relación Mg/K fuera de 2 a 4 en el ' + pct(mgkF, mgk.length) + '% de las muestras', 'Promedio Mg/K ' + fmt(promedio(mgk), 1) + '. Son antagonistas fuera de esa relación.');
+    }
+
+    // ----- 8. Valores atípicos -----
+    if (nP) {
+      var vp = valoresDe(lista, 'p');
+      if (vp.length >= 10) {
+        var q3 = cuantil(vp, 0.75), lim = Math.max(60, q3 + 3 * (q3 - cuantil(vp, 0.25)));
+        var at = lista.filter(function (x) { return x.v.p != null && x.v.p > lim; });
+        if (at.length) concluir('info', at.length + (at.length === 1 ? ' valor' : ' valores') + ' de fósforo muy altos (más de ' + fmt(lim) + ' ppm); la mediana es ' + fmt(cuantil(vp, 0.5)) + ' ppm',
+          esc(listarCorto(at.sort(function (a, b) { return b.v.p - a.v.p; }).map(function (x) { return x.campo + ' ' + x.lote + ' (' + fmt(x.v.p) + ')'; }), 3)) + '.', 'Revisar: puede ser una muestra tomada sobre la línea de fertilización o un error de carga. Pesan mucho en los promedios.');
+      }
+    }
+
+    // ----- 9. Cobertura de los análisis -----
+    var poco = ['s', 'zn', 'b', 'n'].map(nutPorId).filter(function (n) { return n; }).map(function (n) { return { n: n, c: valoresDe(lista, n.id).length / lista.length }; })
+      .filter(function (o) { return o.c < 0.4; });
+    if (poco.length) concluir('info', 'Ampliar el análisis', poco.map(function (o) { return o.n.corto + ' solo en el ' + Math.round(o.c * 100) + '% de las muestras'; }).join(' · ') + '.', 'Incluir azufre, zinc, boro y nitratos en los próximos muestreos mejora el diagnóstico.');
+
+    // ----- 10. Fortalezas -----
+    var fuertes = evaluables.filter(function (n) { if (n.id === 'ph' || n.tipo === 'menos' || (n.id === 'k' && kEnExceso)) return false; var s = estad(n, lista); return s.n >= 5 && s.cuenta.bien / s.n >= 0.7; });
+    if (fuertes.length) concluir('bien', 'Niveles adecuados en ' + fuertes.map(function (n) { return n.corto; }).join(', '), 'Más del 70% de las muestras en nivel adecuado.');
+
+    // ----- Campos prioritarios -----
+    var idxCampo = porCampo.map(function (pc) {
+      var iv = pc.muestras.map(indiceMuestra).filter(function (v) { return v != null; });
+      return { campo: pc.campo, campania: pc.campania, ind: promedio(iv), n: pc.muestras.length, pc: pc };
+    }).filter(function (o) { return o.ind != null; });
+    if (idxCampo.length >= 3) {
+      var peores = idxCampo.slice().sort(function (a, b) { return a.ind - b.ind; }).slice(0, 5).filter(function (o) { return o.ind < 60; });
+      if (peores.length) concluir('atencion', 'Campos prioritarios', 'Menor índice de fertilidad en su última campaña: ' + peores.map(function (o) { return esc(o.campo) + ' (' + Math.round(o.ind) + ')'; }).join(', ') + '.', 'Empezar por estos campos el plan de fertilización y enmiendas.');
+    }
+    C.sort(function (a, b) { return NIVELES[a.nivel].orden - NIVELES[b.nivel].orden; });
+
+    // ----- Opciones del panel -----
+    var nG = nutDeVista(lista);
+    r.opciones = selectNutrienteHTML(lista, nG);
+
+    // ----- Gráficos -----
+    if (idxCampo.length) {
+      var orden = idxCampo.slice().sort(function (a, b) { return panelCfg.ranking === 'altos' ? b.ind - a.ind : a.ind - b.ind; }).slice(0, 12);
+      r.graficos.push({
+        tipo: 'ranking', ancho: 'medio', titulo: 'Índice de fertilidad por campo (' + (panelCfg.ranking === 'altos' ? 'los más altos' : 'los más bajos') + ')',
+        opciones: '<label>Mostrar <select data-op="ranking"><option value="bajos"' + (panelCfg.ranking !== 'altos' ? ' selected' : '') + '>Los 12 más bajos (prioridad)</option><option value="altos"' + (panelCfg.ranking === 'altos' ? ' selected' : '') + '>Los 12 más altos</option></select></label>',
+        cats: orden.map(function (o) { return o.campo; }), vals: orden.map(function (o) { return o.ind; }), max: 100,
+        colores: orden.map(function (o) { return COLORES[nivelIndice(o.ind)]; }), estados: orden.map(function (o) { return textoIndice(o.ind); }),
+        detalles: orden.map(function (o) { return 'Campaña ' + o.campania + ' · ' + o.n + ' muestras'; }),
+        leyenda: [{ c: COLORES.bajo, t: 'Bajo (menos de 50)' }, { c: COLORES.medio, t: 'Medio (50 a 75)' }, { c: COLORES.bien, t: 'Bueno (75 o más)' }]
+      });
+    }
+    var vg = vistaGeneral(lista);
+    if (vg.grafico) { vg.grafico.ancho = 'medio'; vg.grafico.titulo = 'Limitantes: reparto de las muestras por nivel (%)'; r.graficos.push(vg.grafico); }
+
+    if (nG) {
+      var u = nG.unidad ? ' (' + nG.unidad + ')' : '';
+      var conV = lista.filter(function (x) { return x.v[nG.id] != null; });
+      var cs2 = unico(conV.map(function (x) { return x.campania; })).sort(ordenarTexto);
+      if (cs2.length >= 2) {
+        var gru = cs2.map(function (c) { return conV.filter(function (x) { return x.campania === c; }); });
+        var st = gru.map(function (l) { return estad(nG, l); });
+        var gl = graficoBarras(nG, cs2, gru.map(function (l) { return cuantil(valoresDe(l, nG.id), 0.5); }), nG.nombre + ': evolución por campaña (mediana' + (nG.unidad ? ', ' + nG.unidad : '') + ')',
+          st.map(function (s) { return s.n + ' muestras · promedio ' + fmt(s.prom) + ' · ' + textoReparto(s); }));
+        gl.tipo = 'linea'; gl.ancho = 'medio';
+        r.graficos.push(gl);
+      }
+      var amb2 = familiaAmbientes(conV, 1);
+      if (amb2.length >= 2) {
+        var gra = amb2.map(function (a) { return conV.filter(function (x) { return ambienteDe(x) === a; }); });
+        var sta = gra.map(function (l) { return estad(nG, l); });
+        var ga = graficoBarras(nG, amb2, gra.map(function (l) { return cuantil(valoresDe(l, nG.id), 0.5); }), nG.nombre + ' por ambiente (mediana' + (nG.unidad ? ', ' + nG.unidad : '') + ')',
+          sta.map(function (s) { return s.n + ' muestras · promedio ' + fmt(s.prom) + ' · ' + textoReparto(s); }));
+        ga.ancho = 'medio';
+        r.graficos.push(ga);
+      }
+    }
+    // Dispersión entre dos variables
+    var conDatos = nutsConDatos(lista).filter(function (n) { return valoresDe(lista, n.id).length >= 5; });
+    if (conDatos.length >= 2) {
+      var xId = panelCfg.xDisp && nutPorId(panelCfg.xDisp) && conDatos.indexOf(nutPorId(panelCfg.xDisp)) >= 0 ? panelCfg.xDisp : (nutPorId('arena') && conDatos.indexOf(nutPorId('arena')) >= 0 ? 'arena' : conDatos[0].id);
+      var yId = panelCfg.yDisp && nutPorId(panelCfg.yDisp) && conDatos.indexOf(nutPorId(panelCfg.yDisp)) >= 0 ? panelCfg.yDisp : (nutPorId('mo') && conDatos.indexOf(nutPorId('mo')) >= 0 && xId !== 'mo' ? 'mo' : conDatos[1].id);
+      var nx = nutPorId(xId), ny = nutPorId(yId);
+      var pts = lista.filter(function (x) { return x.v[xId] != null && x.v[yId] != null; });
+      var pe2 = pearson(pts.map(function (x) { return x.v[xId]; }), pts.map(function (x) { return x.v[yId]; }));
+      var opt = function (sel, op) { return '<select data-op="' + op + '">' + conDatos.map(function (n) { return '<option value="' + esc(n.id) + '"' + (n.id === sel ? ' selected' : '') + '>' + esc(n.corto + (n.unidad ? ' (' + n.unidad + ')' : '')) + '</option>'; }).join('') + '</select>'; };
+      var fuerza = !pe2 ? '' : Math.abs(pe2.r) >= 0.7 ? 'fuerte' : Math.abs(pe2.r) >= 0.4 ? 'moderada' : Math.abs(pe2.r) >= 0.2 ? 'débil' : 'casi nula';
+      r.graficos.push({
+        tipo: 'dispersion', ancho: 'completo',
+        titulo: 'Relación entre ' + nx.corto + ' y ' + ny.corto + (pe2 ? ' · r = ' + fmt(pe2.r, 2) + ' (' + fuerza + ', ' + pts.length + ' muestras)' : ''),
+        opciones: '<label>Eje horizontal ' + opt(xId, 'xdisp') + '</label><label>Eje vertical ' + opt(yId, 'ydisp') + '</label>',
+        puntos: pts.map(function (x) { return { x: x.v[xId], y: x.v[yId], t: x.campo + ' · ' + x.lote + ' · ' + x.campania }; }),
+        xl: etiquetaNut(nx), yl: etiquetaNut(ny), recta: pe2 && pts.length >= 5 ? pe2 : null,
+        leyenda: [{ c: '#8F131C', t: 'Cada punto es una muestra' }].concat(pe2 ? [{ c: null, t: 'Línea punteada: tendencia' }] : [])
+      });
+    }
+
+    // ----- Plan de fertilización orientativo -----
+    var body = [], est = [];
+    idxCampo.slice().sort(function (a, b) { return a.ind - b.ind; }).forEach(function (o) {
+      var m = o.pc.muestras, P = promedio(valoresDe(m, 'p')), N = promedio(valoresDe(m, 'n')), S = promedio(valoresDe(m, 's')), Z = promedio(valoresDe(m, 'zn'));
+      var nS = nutPorId('s'), nZ = nutPorId('zn');
+      var map = P != null && P < pObj ? Math.round((pObj - P) * panelCfg.factorP / 0.227 / 5) * 5 : (P != null ? 0 : null);
+      var yeso = S == null || !nS ? '–' : S < Number(nS.bajo) ? '110' : S < Number(nS.alto) ? '80' : '0';
+      body.push([o.campo, o.campania, String(Math.round(o.ind)), P == null ? '–' : fmt(P), map == null ? '–' : String(map), N == null ? '–' : String(Math.round(N * 2.6)), yeso, Z == null || !nZ ? '–' : Z < Number(nZ.bajo) ? 'Sí' : 'No']);
+      est.push([null, null, nivelIndice(o.ind), P != null && nP ? clasificar(nP, P).k : null, null, null, yeso !== '–' && yeso !== '0' ? 'medio' : null, Z != null && nZ && Z < Number(nZ.bajo) ? 'bajo' : null]);
+    });
+    if (body.length) r.tablas.push({
+      titulo: 'Plan de fertilización orientativo por campo (última campaña muestreada; P objetivo ' + fmt(pObj) + ' ppm, ' + fmt(panelCfg.factorP) + ' kg P/ha por ppm)',
+      head: ['Campo', 'Campaña', 'Índice', 'P (ppm)', 'MAP construcción (kg/ha)', 'N-NO3 0-20 cm (kg N/ha)', 'Yeso (kg/ha)', 'Zn'], body: body, estados: est, numeros: [2, 3, 4, 5, 6], maxFilas: 15,
+      nota: 'MAP = fosfato monoamónico 11-52-0 (22,7% P), solo para subir el P al objetivo; sumar la reposición de lo que extrae el cultivo. N-NO3: ppm × 2,6 (densidad 1,3). Yeso: 18% S. Zn «Sí»: 1–2 kg Zn/ha o semilla tratada. Valores orientativos: confirmar con el asesor.'
+    });
+    r.planOpciones = '<label>P objetivo (ppm) <input type="text" inputmode="decimal" data-op="pobj" value="' + esc(String(pObj).replace('.', ',')) + '"></label>' +
+      '<label>Kg de P por ppm a subir <input type="text" inputmode="decimal" data-op="factorp" value="' + esc(String(panelCfg.factorP).replace('.', ',')) + '"></label>';
+    r.puntos.push('<i>Diagnóstico automático según los rangos de «Nutrientes y rangos» y reglas agronómicas generales. Es orientativo: confirmar las decisiones con el asesor agronómico.</i>');
+    return r;
+  }
+
   function armarVista() {
     var lista = filtrados();
-    var f = { general: vistaGeneral, campo: vistaCampo, nutriente: vistaNutriente, comparar: vistaComparar }[estado.vista];
+    var f = { panel: vistaPanel, general: vistaGeneral, campo: vistaCampo, nutriente: vistaNutriente, comparar: vistaComparar }[estado.vista];
     var r = f(lista);
-    if (lista.length) r.puntos.push('<i>Evaluación orientativa según los rangos cargados en «Nutrientes y rangos». Confirmar las decisiones con el asesor agronómico.</i>');
+    if (lista.length && estado.vista !== 'panel') r.puntos.push('<i>Evaluación orientativa según los rangos cargados en «Nutrientes y rangos». Confirmar las decisiones con el asesor agronómico.</i>');
+    if (!r.graficos) r.graficos = r.grafico ? [r.grafico] : [];
     return r;
   }
 
@@ -471,7 +820,7 @@
     while (tit.length > 8 && ctx.measureText(tit).width > W - 8) tit = tit.slice(0, -2);
     if (tit !== (g.titulo || '')) tit = tit.slice(0, -1) + '…';
     ctx.fillText(tit, 4, 4);
-    if (!g.cats || !g.cats.length) {
+    if (g.tipo !== 'dispersion' && (!g.cats || !g.cats.length)) {
       ctx.font = '14px ' + fuente; ctx.fillText('Sin datos para graficar.', 4, 40); return hits;
     }
 
@@ -502,7 +851,10 @@
       return hits;
     }
 
-    // Barras verticales con líneas de referencia
+    if (g.tipo === 'ranking') return dibujarRanking(ctx, g, W, H, fuente, hits);
+    if (g.tipo === 'dispersion') return dibujarDispersion(ctx, g, W, H, fuente, hits);
+
+    // Barras verticales (o línea) con líneas de referencia
     var vals = g.vals.map(function (v) { return v == null ? 0 : v; });
     var maxV = Math.max.apply(null, vals.concat(g.lineas.map(function (l) { return l.v; }))) * 1.15 || 1;
     var paso2 = Math.pow(10, Math.floor(Math.log10(maxV / 4))), ticks = [];
@@ -527,10 +879,13 @@
     function yDe(v) { return arriba2 + alto2 - alto2 * v / maxV; }
     ctx.strokeStyle = '#ececed'; ctx.lineWidth = 1; ctx.fillStyle = '#6b6b70'; ctx.font = '11px ' + fuente; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
     ticks.forEach(function (tv) { var y = Math.round(yDe(tv)) + .5; ctx.beginPath(); ctx.moveTo(izq2, y); ctx.lineTo(W - der2, y); ctx.stroke(); ctx.fillText(fmt(tv), izq2 - 6, y); });
-    var barra2 = Math.min(56, pasoX * 0.62);
+    var barra2 = Math.min(56, pasoX * 0.62), puntosLinea = [];
     g.cats.forEach(function (c, i) {
       var v = g.vals[i], x = izq2 + pasoX * i + (pasoX - barra2) / 2;
-      if (v != null) {
+      if (v != null && g.tipo === 'linea') {
+        puntosLinea.push({ x: izq2 + pasoX * i + pasoX / 2, y: yDe(v), c: g.colores[i], v: v });
+        hits.push({ x: izq2 + pasoX * i, y: arriba2, w: pasoX, h: alto2, html: '<b>' + esc(c) + '</b><br>' + fmt(v) + (g.unidad ? ' ' + esc(g.unidad) : '') + ' · ' + esc(g.estados[i]) + (g.detalles[i] ? '<br><small>' + esc(g.detalles[i]) + '</small>' : '') });
+      } else if (v != null) {
         var y = yDe(v), h = arriba2 + alto2 - y, r = Math.min(4, barra2 / 2, h);
         ctx.fillStyle = g.colores[i];
         ctx.beginPath();
@@ -554,46 +909,153 @@
     g.lineas.forEach(function (l, i) {
       var y = Math.round(yDe(l.v)) + .5;
       ctx.strokeStyle = '#5B5B5F'; ctx.beginPath(); ctx.moveTo(izq2, y); ctx.lineTo(W - der2, y); ctx.stroke();
-      ctx.fillStyle = '#5B5B5F'; ctx.font = '11px ' + fuente; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
-      ctx.fillText(l.t, W - der2 - 2, y - 2 - (i && Math.abs(yDe(g.lineas[0].v) - yDe(l.v)) < 14 ? 12 : 0));
+      ctx.font = '11px ' + fuente; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+      var ly = y - 2 - (i && Math.abs(yDe(g.lineas[0].v) - yDe(l.v)) < 14 ? 12 : 0), lw = ctx.measureText(l.t).width;
+      ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.fillRect(W - der2 - lw - 5, ly - 12, lw + 5, 12);
+      ctx.fillStyle = '#5B5B5F'; ctx.fillText(l.t, W - der2 - 2, ly);
     });
     ctx.setLineDash([]);
+    if (puntosLinea.length) {
+      ctx.strokeStyle = '#5B5B5F'; ctx.lineWidth = 2; ctx.lineJoin = 'round';
+      ctx.beginPath();
+      puntosLinea.forEach(function (pt, i) { if (i) ctx.lineTo(pt.x, pt.y); else ctx.moveTo(pt.x, pt.y); });
+      ctx.stroke();
+      puntosLinea.forEach(function (pt) {
+        ctx.beginPath(); ctx.arc(pt.x, pt.y, 6, 0, Math.PI * 2); ctx.fillStyle = '#fff'; ctx.fill();
+        ctx.beginPath(); ctx.arc(pt.x, pt.y, 4.5, 0, Math.PI * 2); ctx.fillStyle = pt.c; ctx.fill();
+        if (puntosLinea.length <= 12) { ctx.fillStyle = '#222226'; ctx.font = '600 11px ' + fuente; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillText(fmt(pt.v), pt.x, pt.y - 8); }
+      });
+    }
     return hits;
   }
 
-  function leyendaHTML(g) {
-    if (!g) return '';
-    if (g.tipo === 'apilado') return g.series.map(function (s) { return '<span><i style="background:' + s.color + '"></i>' + esc(s.nombre) + '</span>'; }).join('');
-    var vistos = {}, items = [];
-    g.colores.forEach(function (c, i) { if (!vistos[c]) { vistos[c] = 1; items.push('<span><i style="background:' + c + '"></i>' + esc(g.estados[i]) + '</span>'); } });
-    if (g.lineas.length) items.push('<span><i class="linea" style="border-color:#5B5B5F"></i>Límites de interpretación</span>');
-    return items.join('');
+  // Escala "linda" para un eje: devuelve mínimo, máximo y marcas.
+  function escalaEje(min, max, partes) {
+    if (min === max) { min = min - 1; max = max + 1; }
+    var paso = Math.pow(10, Math.floor(Math.log10((max - min) / partes)));
+    paso = [1, 2, 2.5, 5, 10].map(function (f) { return f * paso; }).filter(function (x) { return (max - min) / x <= partes + 1; })[0] || paso * 10;
+    var lo = Math.floor(min / paso) * paso, hi = Math.ceil(max / paso) * paso, t = [];
+    for (var v = lo; v <= hi + paso / 1000; v += paso) t.push(Math.round(v * 1e6) / 1e6);
+    return { min: lo, max: hi, ticks: t };
   }
 
-  var hitsActuales = [], graficoActual = null;
-  function pintarGrafico() {
-    var cv = $('grafico'), caja = cv.parentNode;
-    if (!graficoActual) { caja.hidden = true; return; }
-    caja.hidden = false;
-    var W = cv.clientWidth || caja.clientWidth || 600, H = cv.clientHeight || 340;
-    if (graficoActual.tipo === 'apilado') { H = Math.max(200, 50 + graficoActual.cats.length * 34); cv.style.height = H + 'px'; }
-    else cv.style.height = '';
-    H = cv.clientHeight || H;
-    hitsActuales = dibujar(cv, graficoActual, W, H, window.devicePixelRatio || 1);
+  function dibujarRanking(ctx, g, W, H, fuente, hits) {
+    ctx.font = '12px ' + fuente;
+    var izq = Math.min(W * 0.42, Math.max.apply(null, g.cats.map(function (c) { return ctx.measureText(c).width; })) + 12);
+    var arriba = 32, abajo = 22, der = 44, ancho = W - izq - der, alto = H - arriba - abajo;
+    var paso = alto / g.cats.length, barra = Math.min(22, paso * 0.7), max = g.max || Math.max.apply(null, g.vals) || 1;
+    ctx.strokeStyle = '#ececed'; ctx.lineWidth = 1; ctx.fillStyle = '#6b6b70'; ctx.font = '11px ' + fuente; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    [0, 0.25, 0.5, 0.75, 1].forEach(function (f) { var x = Math.round(izq + ancho * f) + .5; ctx.beginPath(); ctx.moveTo(x, arriba); ctx.lineTo(x, arriba + alto); ctx.stroke(); ctx.fillText(fmt(max * f), x, arriba + alto + 6); });
+    g.cats.forEach(function (c, i) {
+      var y = arriba + paso * i + (paso - barra) / 2, w = Math.max(2, ancho * g.vals[i] / max), r = Math.min(4, barra / 2, w);
+      ctx.fillStyle = '#222226'; ctx.font = '12px ' + fuente; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+      var t = c; while (t.length > 4 && ctx.measureText(t).width > izq - 12) t = t.slice(0, -2);
+      ctx.fillText(t === c ? c : t + '…', izq - 8, y + barra / 2);
+      ctx.fillStyle = g.colores[i];
+      ctx.beginPath(); ctx.moveTo(izq, y); ctx.lineTo(izq + w - r, y); ctx.quadraticCurveTo(izq + w, y, izq + w, y + r);
+      ctx.lineTo(izq + w, y + barra - r); ctx.quadraticCurveTo(izq + w, y + barra, izq + w - r, y + barra); ctx.lineTo(izq, y + barra); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#222226'; ctx.font = '600 11px ' + fuente; ctx.textAlign = 'left';
+      ctx.fillText(fmt(g.vals[i], 0), izq + w + 5, y + barra / 2);
+      hits.push({ x: 0, y: arriba + paso * i, w: W, h: paso, html: '<b>' + esc(c) + '</b><br>Índice ' + fmt(g.vals[i], 0) + ' · ' + esc(g.estados[i]) + (g.detalles[i] ? '<br><small>' + esc(g.detalles[i]) + '</small>' : '') });
+    });
+    return hits;
+  }
+
+  function dibujarDispersion(ctx, g, W, H, fuente, hits) {
+    if (!g.puntos.length) { ctx.font = '14px ' + fuente; ctx.fillText('Sin muestras con los dos datos.', 4, 40); return hits; }
+    var xs = g.puntos.map(function (p) { return p.x; }), ys = g.puntos.map(function (p) { return p.y; });
+    var ex = escalaEje(Math.min.apply(null, xs), Math.max.apply(null, xs), W < 500 ? 4 : 6), ey = escalaEje(Math.min.apply(null, ys), Math.max.apply(null, ys), 5);
+    ctx.font = '11px ' + fuente;
+    var izq = Math.max.apply(null, ey.ticks.map(function (t) { return ctx.measureText(fmt(t)).width; })) + 30, arriba = 34, abajo = 44, der = 14;
+    var ancho = W - izq - der, alto = H - arriba - abajo;
+    function X(v) { return izq + ancho * (v - ex.min) / (ex.max - ex.min); }
+    function Y(v) { return arriba + alto - alto * (v - ey.min) / (ey.max - ey.min); }
+    ctx.strokeStyle = '#ececed'; ctx.lineWidth = 1; ctx.fillStyle = '#6b6b70';
+    ey.ticks.forEach(function (t) { var y = Math.round(Y(t)) + .5; ctx.beginPath(); ctx.moveTo(izq, y); ctx.lineTo(W - der, y); ctx.stroke(); ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillText(fmt(t), izq - 6, y); });
+    ex.ticks.forEach(function (t) { var x = Math.round(X(t)) + .5; ctx.beginPath(); ctx.moveTo(x, arriba); ctx.lineTo(x, arriba + alto); ctx.stroke(); ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillText(fmt(t), x, arriba + alto + 5); });
+    ctx.fillStyle = '#5B5B5F'; ctx.font = '600 12px ' + fuente; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    ctx.fillText(g.xl, izq + ancho / 2, H - 4);
+    ctx.save(); ctx.translate(12, arriba + alto / 2); ctx.rotate(-Math.PI / 2); ctx.textBaseline = 'middle'; ctx.fillText(g.yl, 0, 0); ctx.restore();
+    g.puntos.forEach(function (p) {
+      var x = X(p.x), y = Y(p.y);
+      ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2); ctx.fillStyle = 'rgba(143,19,28,0.5)'; ctx.fill();
+      hits.push({ cx: x, cy: y, html: '<b>' + esc(p.t) + '</b><br>' + esc(g.xl) + ': ' + fmt(p.x) + '<br>' + esc(g.yl) + ': ' + fmt(p.y) });
+    });
+    if (g.recta) {
+      ctx.save(); ctx.beginPath(); ctx.rect(izq, arriba, ancho, alto); ctx.clip();
+      ctx.setLineDash([6, 4]); ctx.strokeStyle = '#5B5B5F'; ctx.lineWidth = 2; ctx.beginPath();
+      ctx.moveTo(X(ex.min), Y(g.recta.a + g.recta.b * ex.min)); ctx.lineTo(X(ex.max), Y(g.recta.a + g.recta.b * ex.max)); ctx.stroke();
+      ctx.restore(); ctx.setLineDash([]);
+    }
+    return hits;
+  }
+
+  function leyendaItems(g) {
+    if (!g) return [];
+    if (g.leyenda) return g.leyenda;
+    if (g.tipo === 'apilado') return g.series.map(function (s) { return { c: s.color, t: s.nombre }; });
+    var vistos = {}, items = [];
+    g.colores.forEach(function (c, i) { if (!vistos[c]) { vistos[c] = 1; items.push({ c: c, t: g.estados[i] }); } });
+    if (g.lineas && g.lineas.length) items.push({ c: null, t: 'Línea punteada: límites de interpretación' });
+    return items;
+  }
+  function leyendaHTML(g) {
+    return leyendaItems(g).map(function (it) {
+      return '<span>' + (it.c ? '<i style="background:' + it.c + '"></i>' : '<i class="linea" style="border-color:#5B5B5F"></i>') + esc(it.t) + '</span>';
+    }).join('');
+  }
+
+  var graficosActuales = [];
+  function alturaGrafico(g, W) {
+    if (g.tipo === 'apilado') return Math.max(200, 50 + g.cats.length * 34);
+    if (g.tipo === 'ranking') return Math.max(180, 56 + g.cats.length * 30);
+    return W < 500 ? 300 : 340;
+  }
+  function pintarGraficos() {
+    document.querySelectorAll('#graficos canvas').forEach(function (cv) {
+      var g = graficosActuales[cv.dataset.i];
+      if (!g) return;
+      var W = cv.clientWidth || cv.parentNode.clientWidth || 600, H = alturaGrafico(g, W);
+      cv.style.height = H + 'px';
+      cv._hits = dibujar(cv, g, W, H, window.devicePixelRatio || 1);
+    });
   }
   function tip(e) {
-    var cv = $('grafico'), r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top, t = $('grafico-tip');
-    var h = null;
-    for (var i = 0; i < hitsActuales.length; i++) { var o = hitsActuales[i]; if (x >= o.x && x <= o.x + o.w && y >= o.y && y <= o.y + o.h) { h = o; break; } }
+    var cv = e.target.closest ? e.target.closest('canvas') : null;
+    if (!cv || !cv._hits) return;
+    var r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top, t = cv.nextElementSibling;
+    var h = null, mejor = 100;
+    cv._hits.forEach(function (o) {
+      if (o.cx != null) { var d = Math.hypot(o.cx - x, o.cy - y); if (d < 9 && d < mejor) { mejor = d; h = o; } }
+      else if (!h && x >= o.x && x <= o.x + o.w && y >= o.y && y <= o.y + o.h) h = o;
+    });
     if (!h) { t.hidden = true; return; }
     t.innerHTML = h.html; t.hidden = false;
     var tx = Math.min(x + 12, r.width - t.offsetWidth - 4), ty = y - t.offsetHeight - 10;
     t.style.left = Math.max(0, tx) + 'px'; t.style.top = (ty < 0 ? y + 16 : ty) + 'px';
   }
+  function graficoHTML(g, i) {
+    return '<div class="graf-card' + (g.ancho === 'medio' ? ' medio' : '') + '">' + (g.opciones ? '<div class="graf-op">' + g.opciones + '</div>' : '') +
+      '<div class="grafico-caja"><canvas data-i="' + i + '" role="img" aria-label="' + esc(g.titulo) + '"></canvas><div class="grafico-tip" hidden></div></div>' +
+      '<div class="leyenda">' + leyendaHTML(g) + '</div></div>';
+  }
+  function kpiHTML(k) {
+    return '<div class="kpi' + (k.k ? ' kpi-' + k.k : '') + '"><span class="kpi-t">' + esc(k.t) + '</span><strong>' + esc(k.v) + '</strong><span class="kpi-sub">' + esc(k.sub || '') + '</span></div>';
+  }
+  function conclusionHTML(c) {
+    var n = NIVELES[c.nivel];
+    return '<div class="concl concl-' + c.nivel + '"><span class="concl-ic" aria-hidden="true">' + n.icono + '</span><div>' +
+      '<p class="concl-tit"><span class="concl-niv">' + n.t + '</span> ' + c.titulo + '</p>' + (c.texto ? '<p>' + c.texto + '</p>' : '') +
+      (c.accion ? '<p class="concl-acc">' + c.accion + '</p>' : '') + '</div></div>';
+  }
 
   // ---------- Pantalla ----------
   function tablaHTML(tb) {
     var num = tb.numeros || [];
+    if (tb.maxFilas && tb.body.length > tb.maxFilas && !estado.verPlan) {
+      var corta = Object.assign({}, tb, { body: tb.body.slice(0, tb.maxFilas), estados: (tb.estados || []).slice(0, tb.maxFilas), maxFilas: 0 });
+      return tablaHTML(corta) + '<button type="button" class="boton boton-chico" data-ver="plan">Ver los ' + tb.body.length + ' campos</button>';
+    }
     var h = '<p class="subtitulo">' + esc(tb.titulo) + '</p><table class="tabla"><thead><tr>' + tb.head.map(function (x, i) {
       return '<th' + (num.indexOf(i) >= 0 ? ' class="n"' : '') + '>' + esc(x) + '</th>';
     }).join('') + '</tr></thead><tbody>';
@@ -607,7 +1069,7 @@
         return '<td' + (cls.length ? ' class="' + cls.join(' ') + '"' : '') + '>' + esc(c) + '</td>';
       }).join('') + '</tr>';
     });
-    return h + '</tbody></table>';
+    return h + '</tbody></table>' + (tb.nota ? '<p class="ayuda">' + esc(tb.nota) + '</p>' : '');
   }
 
   var reporteActual = null;
@@ -623,11 +1085,16 @@
     var r = armarVista();
     reporteActual = r;
     $('vista-opciones').innerHTML = r.opciones || '';
-    $('eval-texto').innerHTML = r.puntos.length ? '<p class="eval-titulo">' + esc(r.titulo) + '</p><ul>' + r.puntos.map(function (p) { return '<li>' + p + '</li>'; }).join('') + '</ul>' : '';
-    graficoActual = r.grafico || null;
-    $('grafico-leyenda').innerHTML = leyendaHTML(graficoActual);
-    pintarGrafico();
-    $('eval-tabla').innerHTML = r.tablas.map(tablaHTML).join('');
+    $('panel-kpis').innerHTML = (r.kpis || []).map(kpiHTML).join('');
+    var CMAX = 6, nc = r.conclusiones ? r.conclusiones.length : 0;
+    $('panel-conclusiones').innerHTML = nc ? '<p class="eval-titulo">Conclusiones clave <small>(' + nc + ', de mayor a menor prioridad)</small></p>' +
+      r.conclusiones.map(function (c, i) { return i < CMAX || estado.verTodas ? conclusionHTML(c) : ''; }).join('') +
+      (nc > CMAX ? '<button type="button" class="boton boton-chico" data-ver="concl">' + (estado.verTodas ? 'Ver solo las principales' : 'Ver las ' + nc + ' conclusiones') + '</button>' : '') : '';
+    $('eval-texto').innerHTML = r.puntos.length ? (r.kpis ? '' : '<p class="eval-titulo">' + esc(r.titulo) + '</p>') + '<ul>' + r.puntos.map(function (p) { return '<li>' + p + '</li>'; }).join('') + '</ul>' : '';
+    graficosActuales = r.graficos;
+    $('graficos').innerHTML = r.graficos.map(graficoHTML).join('');
+    pintarGraficos();
+    $('eval-tabla').innerHTML = (r.planOpciones ? '<p class="subtitulo">Plan de fertilización</p><div class="grilla plan-op">' + r.planOpciones + '</div>' : '') + r.tablas.map(tablaHTML).join('');
     $('btn-pdf').disabled = !lista.length;
     tablaDatos(lista);
   }
@@ -932,7 +1399,8 @@
       img.src = 'logo-morero.png';
     });
   }
-  function textoPlano(html) { var d = document.createElement('div'); d.innerHTML = html; return d.textContent; }
+  // Texto para el PDF: sin HTML y sin símbolos que las fuentes del PDF no tienen.
+  function textoPlano(html) { var d = document.createElement('div'); d.innerHTML = html; return d.textContent.replace(/≈\s?/g, 'aprox. ').replace(/→/g, '>').replace(/[▲✓]/g, ''); }
   function descripcionFiltros() {
     var p = [];
     if ($('f-campo').value) p.push('Campo: ' + $('f-campo').value);
@@ -966,9 +1434,42 @@
       var lf = doc.splitTextToSize('Selección: ' + descripcionFiltros(), W - 2 * M);
       doc.text(lf, M, y); y += lf.length * 4 + 3;
 
+      // Indicadores
+      if (r.kpis && r.kpis.length) {
+        var porFila = 3, gap = 3, kw = (W - 2 * M - gap * (porFila - 1)) / porFila, kh = 17;
+        r.kpis.forEach(function (k, i) {
+          var col = i % porFila, kx = M + col * (kw + gap);
+          if (i && !col) y += kh + gap;
+          doc.setFillColor(245, 245, 246); doc.rect(kx, y, kw, kh, 'F');
+          var kc = hexRGB(k.k ? COLORES[k.k] : '#5B5B5F'); doc.setFillColor(kc[0], kc[1], kc[2]); doc.rect(kx, y, 1.2, kh, 'F');
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor.apply(doc, GRIS); doc.text(k.t, kx + 3.5, y + 4.5);
+          doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(34, 34, 38); doc.text(k.v, kx + 3.5, y + 10.5);
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor.apply(doc, GRIS); doc.text(doc.splitTextToSize(k.sub || '', kw - 5)[0] || '', kx + 3.5, y + 14.8);
+        });
+        y += kh + 7;
+      }
+      // Conclusiones clave
+      if (r.conclusiones && r.conclusiones.length) {
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor.apply(doc, BORDO);
+        doc.text('Conclusiones clave', M, y); y += 5;
+        var colNivel = { critico: COLORES.bajo, atencion: COLORES.medio, info: '#5B5B5F', bien: COLORES.bien };
+        r.conclusiones.forEach(function (c) {
+          var tit = doc.splitTextToSize(NIVELES[c.nivel].t.toUpperCase() + ' · ' + textoPlano(c.titulo), W - 2 * M - 6);
+          var cuerpo = doc.splitTextToSize(textoPlano(c.texto + (c.accion ? ' ' + c.accion : '')), W - 2 * M - 6);
+          var alto = tit.length * 4.2 + cuerpo.length * 3.9 + 2;
+          if (y + alto > 284) { doc.addPage(); y = 16; }
+          var cc = hexRGB(colNivel[c.nivel]); doc.setFillColor(cc[0], cc[1], cc[2]); doc.rect(M, y - 3.2, 1.6, alto - 0.5, 'F');
+          doc.setFont('helvetica', 'bold'); doc.setFontSize(9.2); doc.setTextColor(34, 34, 38); doc.text(tit, M + 4, y);
+          y += tit.length * 4.2;
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(8.6); doc.setTextColor(60, 60, 64); doc.text(cuerpo, M + 4, y);
+          y += cuerpo.length * 3.9 + 2.5;
+        });
+        y += 2;
+      }
+
       // Evaluación
       doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor.apply(doc, BORDO);
-      doc.text('Evaluación', M, y); y += 5;
+      doc.text(r.kpis ? 'Nota' : 'Evaluación', M, y); y += 5;
       doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(34, 34, 38);
       r.puntos.forEach(function (p) {
         var lineas = doc.splitTextToSize(textoPlano(p), W - 2 * M - 5);
@@ -978,27 +1479,27 @@
       });
       y += 2;
 
-      // Gráfico
-      if (r.grafico && r.grafico.cats && r.grafico.cats.length) {
-        var gw = 900, gh = r.grafico.tipo === 'apilado' ? Math.max(260, 60 + r.grafico.cats.length * 32) : 420;
+      // Gráficos
+      (r.graficos || []).forEach(function (g) {
+        if (g.tipo !== 'dispersion' && !(g.cats && g.cats.length)) return;
+        var gw = 900, gh = g.tipo === 'apilado' ? Math.max(260, 60 + g.cats.length * 32) : g.tipo === 'ranking' ? Math.max(220, 60 + g.cats.length * 30) : 400;
         var cv = document.createElement('canvas');
-        dibujar(cv, r.grafico, gw, gh, 2);
+        dibujar(cv, g, gw, gh, 2);
         var anchoMM = W - 2 * M, altoMM = anchoMM * gh / gw;
-        if (altoMM > 120) { altoMM = 120; anchoMM = altoMM * gw / gh; }
+        if (altoMM > 100) { altoMM = 100; anchoMM = altoMM * gw / gh; }
         if (y + altoMM + 10 > 285) { doc.addPage(); y = 16; }
         doc.addImage(cv.toDataURL('image/png'), 'PNG', M, y, anchoMM, altoMM);
         y += altoMM + 3;
-        // Leyenda
-        doc.setFontSize(8.5); doc.setTextColor.apply(doc, GRIS);
-        var items = r.grafico.tipo === 'apilado' ? r.grafico.series.map(function (s) { return { c: s.color, t: s.nombre }; })
-          : unico(r.grafico.colores).map(function (c) { return { c: c, t: r.grafico.estados[r.grafico.colores.indexOf(c)] }; }).concat([{ c: null, t: 'Línea punteada: límites de interpretación' }]);
+        doc.setFontSize(8.5); doc.setTextColor.apply(doc, GRIS); doc.setFont('helvetica', 'normal');
         var x = M;
-        items.forEach(function (it) {
+        leyendaItems(g).forEach(function (it) {
+          var tw = doc.getTextWidth(it.t) + (it.c ? 4.5 : 0) + 6;
+          if (x + tw > W - M) { x = M; y += 4.5; }
           if (it.c) { var rgb = hexRGB(it.c); doc.setFillColor(rgb[0], rgb[1], rgb[2]); doc.rect(x, y - 2.6, 3, 3, 'F'); x += 4.5; }
           doc.text(it.t, x, y); x += doc.getTextWidth(it.t) + 6;
         });
-        y += 6;
-      }
+        y += 8;
+      });
 
       // Tablas
       r.tablas.forEach(function (tb) {
@@ -1019,7 +1520,13 @@
             if (tb.ultimaPromedio && d.row.index === tb.body.length - 1) d.cell.styles.fontStyle = 'bold';
           }
         });
-        y = doc.lastAutoTable.finalY + 8;
+        y = doc.lastAutoTable.finalY + 4;
+        if (tb.nota) {
+          var ln = doc.splitTextToSize(tb.nota, W - 2 * M);
+          if (y + ln.length * 3.5 > 285) { doc.addPage(); y = 16; }
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor.apply(doc, GRIS); doc.text(ln, M, y + 2); y += ln.length * 3.5 + 2;
+        }
+        y += 4;
       });
 
       // Pie
@@ -1093,8 +1600,14 @@
     $('btn-limpiar').addEventListener('click', function () { ['f-texto', 'f-campo', 'f-campania', 'f-anio', 'f-nutriente'].forEach(function (id) { $(id).value = ''; }); refrescar(); });
 
     document.querySelectorAll('.pestana').forEach(function (b) { b.addEventListener('click', function () { estado.vista = b.dataset.vista; refrescar(); }); });
-    $('vista-opciones').addEventListener('change', function (e) {
+    $('sec-eval').addEventListener('change', function (e) {
       var op = e.target.dataset.op;
+      if (!op) return;
+      if (op === 'ranking') { panelCfg.ranking = e.target.value; guardarPanel(); }
+      if (op === 'xdisp') { panelCfg.xDisp = e.target.value; guardarPanel(); }
+      if (op === 'ydisp') { panelCfg.yDisp = e.target.value; guardarPanel(); }
+      if (op === 'pobj') { panelCfg.pObj = e.target.value.trim() === '' ? null : numero(e.target.value); guardarPanel(); }
+      if (op === 'factorp') { var fp = numero(e.target.value); if (fp != null && fp > 0) { panelCfg.factorP = fp; guardarPanel(); } }
       if (op === 'campo') estado.campo = e.target.value;
       if (op === 'nut') $('f-nutriente').value = e.target.value;
       if (op === 'por') { estado.compPor = e.target.value; estado.ensSel = null; }
@@ -1114,11 +1627,17 @@
     });
 
     $('btn-pdf').addEventListener('click', descargarPDF);
-    var cv = $('grafico');
-    cv.addEventListener('mousemove', tip);
-    cv.addEventListener('mouseleave', function () { $('grafico-tip').hidden = true; });
-    cv.addEventListener('click', tip);
-    var t; window.addEventListener('resize', function () { clearTimeout(t); t = setTimeout(pintarGrafico, 150); });
+    $('sec-eval').addEventListener('click', function (e) {
+      var v = e.target.dataset && e.target.dataset.ver;
+      if (v === 'concl') estado.verTodas = !estado.verTodas;
+      if (v === 'plan') estado.verPlan = true;
+      if (v) refrescar();
+    });
+    var gs = $('graficos');
+    gs.addEventListener('mousemove', tip);
+    gs.addEventListener('click', tip);
+    gs.addEventListener('mouseout', function (e) { if (e.target.tagName === 'CANVAS') e.target.nextElementSibling.hidden = true; });
+    var t; window.addEventListener('resize', function () { clearTimeout(t); t = setTimeout(pintarGraficos, 150); });
 
     refrescar();
   }
