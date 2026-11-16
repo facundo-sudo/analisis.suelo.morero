@@ -16,7 +16,7 @@ Importar este repositorio en Vercel y aceptar. No hay que configurar nada: es un
    - **Bajar planilla modelo**: Excel vacío con las columnas, para completar.
    - **Nutrientes y rangos**: los límites con los que se interpreta cada valor (bajo / medio / adecuado). Vienen cargados con la hoja «referencias» de MORERO (pH 6 a 7,5; CE < 1,5; Zn < 1 deficiente; S < 6 deficiente, 6–10 moderado; PSI < 7 óptimo, 7–15 ligeramente sódico) y valores orientativos para el resto. Se pueden cambiar o agregar nutrientes. El PSI se calcula solo cuando hay Na y CIC.
    - **Ver umbrales**: muestra la tabla de umbrales con la que se clasifica cada nutriente (problema, intermedio y bien) y de dónde sale cada uno: hoja «referencias» de MORERO, orientativo para la región pampeana o ajustado por el usuario. También está al pie de la evaluación («Ver los umbrales usados») y, con la casilla «Incluir los umbrales en el PDF», sale al final del informe.
-2. **Buscar y elegir**: por texto (campo, lote o ensayo), campo, campaña, año y nutriente. Al elegir un nutriente, la evaluación usa solo los análisis que tienen ese dato y lo indica arriba («Análisis en la búsqueda: 987 · con datos de zinc: 445»).
+2. **Buscar y elegir**: por texto (campo, lote o ensayo), campo, campaña, año, ambiente (loma, media loma, bajo o zonas de productividad, leído del nombre del lote) y nutriente. Al elegir un nutriente, la evaluación usa solo los análisis que tienen ese dato y lo indica arriba («Análisis en la búsqueda: 987 · con datos de zinc: 445»).
 3. **Evaluación** (con lo que se haya buscado):
    - **Panel experto** (se abre primero): diagnóstico automático como lo haría un especialista en suelos, con reglas agronómicas y sin servicios externos.
      - *Indicadores*: muestras, índice de fertilidad (0 a 100, combina P, N, S, Zn, MO, pH, CE, B y PSI), principal limitante, medianas de P y MO, y pH.
@@ -31,6 +31,7 @@ Importar este repositorio en Vercel y aceptar. No hay que configurar nada: es un
      - Los nombres de campos aparecen solo en listas de uso interno (elegir vidrieras).
    - **General**: resumen por nutriente (promedio, mínimo, máximo, estado y reparto de muestras), gráfico del reparto por nivel y promedio por campo, con sugerencias.
    - **Por campo**: todos los lotes del campo con los valores pintados según su nivel y gráfico por lote.
+   - **Separar por ambiente** (en «Por nutriente» y «Por campo»): gráfico con una barra por ambiente en cada campaña, tabla por ambiente (promedio, mediana, mínimo, máximo, reparto), tabla campaña × ambiente y conclusión sobre la diferencia entre ambientes.
    - **Por nutriente**: promedio por campo (o por lote, si se eligió un campo) y, con muchos campos, la evolución por campaña.
    - **Comparar**: elegir dos o más campañas, campos o ensayos y ver las diferencias en tabla, texto y gráfico.
    - **Descargar PDF**: informe con el logo, la selección, la evaluación, el gráfico y las tablas.

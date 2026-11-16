@@ -174,8 +174,9 @@
   var estado = { vista: 'panel', campo: '', ensSel: null, compPor: 'campania' };
 
   function filtrados() {
-    var t = norm($('f-texto').value), c = $('f-campo').value, ca = $('f-campania').value, an = $('f-anio').value;
+    var t = norm($('f-texto').value), c = $('f-campo').value, ca = $('f-campania').value, an = $('f-anio').value, am = $('f-ambiente').value;
     return datos.filter(function (r) {
+      if (am && (am === '__sin' ? ambienteDe(r) !== '' : ambienteDe(r) !== am)) return false;
       if (c && r.campo !== c) return false;
       if (ca && r.campania !== ca) return false;
       if (an && anioDe(r) !== an) return false;
@@ -198,6 +199,9 @@
     llenarSelect($('f-campo'), unico(datos.map(function (r) { return r.campo; })).sort(ordenarTexto), 'Todos los campos');
     llenarSelect($('f-campania'), unico(datos.map(function (r) { return r.campania; })).sort(ordenarTexto).reverse(), 'Todas las campañas');
     llenarSelect($('f-anio'), unico(datos.map(anioDe)).sort().reverse(), 'Todos los años');
+    var ambsDatos = unico(datos.map(ambienteDe));
+    llenarSelect($('f-ambiente'), ORDEN_AMB.filter(function (a) { return ambsDatos.indexOf(a) >= 0; }).map(function (a) { return { v: a, t: a }; })
+      .concat(datos.some(function (x) { return !ambienteDe(x); }) ? [{ v: '__sin', t: 'Sin ambiente en el nombre del lote' }] : []), 'Todos los ambientes');
     var conDatos = nutsConDatos(datos);
     llenarSelect($('f-nutriente'), (conDatos.length ? conDatos : nutrientes).map(function (n) { return { v: n.id, t: n.nombre + (n.corto !== n.nombre ? ' (' + n.corto + ')' : '') }; }), 'Todos los nutrientes');
     $('lista-campos').innerHTML = unico(datos.map(function (r) { return r.campo; })).sort(ordenarTexto).map(function (x) { return '<option value="' + esc(x) + '">'; }).join('');
@@ -319,7 +323,7 @@
     if (campos.indexOf(estado.campo) < 0) estado.campo = $('f-campo').value || campos[0];
     var sub = lista.filter(function (x) { return x.campo === estado.campo; });
     var n = nutDeVista(sub);
-    r.opciones = '<label>Campo <select data-op="campo">' + campos.map(function (c) { return '<option' + (c === estado.campo ? ' selected' : '') + '>' + esc(c) + '</option>'; }).join('') + '</select></label>' + selectNutrienteHTML(sub, n);
+    r.opciones = '<label>Campo <select data-op="campo">' + campos.map(function (c) { return '<option' + (c === estado.campo ? ' selected' : '') + '>' + esc(c) + '</option>'; }).join('') + '</select></label>' + selectNutrienteHTML(sub, n) + selectSepararHTML();
     r.titulo = VISTAS.campo + ': ' + estado.campo;
     r.puntos.push('Campo <b>' + esc(estado.campo) + '</b>: ' + resumenLista(sub));
     var nf = nutFiltro(), nuts = nutsConDatos(sub).filter(function (x) { return !nf || x.id === nf; });
@@ -344,14 +348,62 @@
         conValor.map(function (x) { return x.v[n.id]; }), n.nombre + ' por lote' + (n.unidad ? ' (' + n.unidad + ')' : ''),
         conValor.map(function (x) { return x.campania + (x.ensayo ? ' · ' + x.ensayo : ''); }));
     }
+    if (n && estado.separar === 'ambiente') separarPorAmbiente(n, sub, r);
     return r;
+  }
+
+  var COLOR_AMB = { 'Loma': '#C08A2B', 'Media loma': '#8F131C', 'Bajo': '#2D5F9A', 'Alta productividad': '#2E8B57', 'Media productividad': '#C08A2B', 'Baja productividad': '#8F131C' };
+  function selectSepararHTML() {
+    return '<label>Separar por ambiente <select data-op="separar"><option value="">No (todos juntos)</option><option value="ambiente"' + (estado.separar === 'ambiente' ? ' selected' : '') + '>Sí: loma, media loma y bajo</option></select></label>';
+  }
+  // Gráfico agrupado (campaña × ambiente), tabla y conclusiones por ambiente para un nutriente.
+  function separarPorAmbiente(n, lista, r) {
+    var conV = lista.filter(function (x) { return x.v[n.id] != null; });
+    var ambs = familiaAmbientes(conV, 1), u = n.unidad ? ' ' + n.unidad : '';
+    if (ambs.length < 2) { r.puntos.push('No se pueden separar ambientes: los nombres de los lotes no dicen loma, media loma o bajo (o hay un solo ambiente en la búsqueda).'); return false; }
+    var porAmb = ambs.map(function (a) { var l = conV.filter(function (x) { return ambienteDe(x) === a; }); return { a: a, l: l, s: estad(n, l), med: cuantil(valoresDe(l, n.id), 0.5) }; });
+    var sinAmb = conV.filter(function (x) { return ambs.indexOf(ambienteDe(x)) < 0; }).length;
+    r.puntos.push('Por ambiente: ' + porAmb.map(function (o) { return '<b>' + o.a + '</b> promedio ' + fmt(o.s.prom) + u + ' (mediana ' + fmt(o.med) + ', ' + pct(o.s.cuenta.bajo, o.s.n) + '% ' + nombreProblema(n) + ', ' + o.s.n + ' muestras)'; }).join(' · ') + '.' +
+      (sinAmb ? ' ' + sinAmb + ' muestras sin ambiente en el nombre del lote quedan fuera de esta separación.' : ''));
+    var ord = porAmb.slice().sort(function (a, b) { return b.s.prom - a.s.prom; });
+    var dif = ord[ord.length - 1].s.prom ? (ord[0].s.prom - ord[ord.length - 1].s.prom) * 100 / Math.abs(ord[ord.length - 1].s.prom) : 0;
+    var art = function (x) { return (x === 'Bajo' ? 'el bajo' : /productividad/.test(x) ? 'la zona de ' + x.toLowerCase() : 'la ' + x.toLowerCase()); };
+    if (dif >= 15) { var t0 = art(ord[0].a); r.puntos.push(t0.charAt(0).toUpperCase() + t0.slice(1) + ' tiene ' + Math.round(dif) + '% más ' + esc(n.nombre.toLowerCase()) + ' (promedio) que ' + art(ord[ord.length - 1].a) + ': conviene diferenciar el manejo y la dosis por ambiente.'); }
+    else r.puntos.push('Los ambientes tienen niveles parecidos (diferencia menor al 15%).');
+    var camps = unico(conV.map(function (x) { return x.campania; })).sort(ordenarTexto).filter(function (c) { return conV.some(function (x) { return x.campania === c && ambs.indexOf(ambienteDe(x)) >= 0; }); });
+    var lineas = graficoBarras(n, ['x'], [0], '', []).lineas;
+    var series = porAmb.map(function (o) {
+      return { nombre: o.a, color: COLOR_AMB[o.a] || '#5B5B5F', vals: camps.map(function (c) { var l = o.l.filter(function (x) { return x.campania === c; }); return l.length ? promedio(valoresDe(l, n.id)) : null; }),
+        cuentas: camps.map(function (c) { return o.l.filter(function (x) { return x.campania === c; }).length; }) };
+    });
+    r.grafico = {
+      tipo: 'agrupado', titulo: n.nombre + ' promedio por campaña y ambiente' + (n.unidad ? ' (' + n.unidad + ')' : ''), cats: camps, series: series, unidad: n.unidad, lineas: lineas,
+      clasif: function (v) { var c = clasificar(n, v); return c ? c.txt : ''; },
+      leyenda: series.map(function (sr) { return { c: sr.color, t: sr.nombre }; }).concat(lineas.length ? [{ c: null, t: 'Línea punteada: límites de interpretación' }] : [])
+    };
+    var body = [], est = [];
+    porAmb.forEach(function (o) {
+      body.push([o.a, String(o.s.n), fmt(o.s.prom), fmt(o.med), fmt(o.s.min), fmt(o.s.max), o.s.estado ? o.s.estado.txt : '–', textoReparto(o.s)]);
+      est.push([null, null, o.s.estado && o.s.estado.k, clasificar(n, o.med) && clasificar(n, o.med).k, null, null, o.s.estado && o.s.estado.k, null]);
+    });
+    r.tablas.unshift({ titulo: n.nombre + ' por ambiente' + (n.unidad ? ' (' + n.unidad + ')' : ''), head: ['Ambiente', 'Muestras', 'Promedio', 'Mediana', 'Mínimo', 'Máximo', 'Estado', 'Reparto'], body: body, estados: est, numeros: [1, 2, 3, 4, 5] });
+    if (camps.length > 1) {
+      var b2 = [], e2 = [];
+      camps.forEach(function (c, i) {
+        var fila = [c], ef = [null];
+        series.forEach(function (sr) { var v = sr.vals[i]; fila.push(v == null ? '–' : fmt(v) + ' (' + sr.cuentas[i] + ')'); var k = clasificar(n, v); ef.push(v == null ? null : k && k.k); });
+        b2.push(fila); e2.push(ef);
+      });
+      r.tablas.splice(1, 0, { titulo: 'Promedio por campaña y ambiente (entre paréntesis, cantidad de muestras)', head: ['Campaña'].concat(ambs), body: b2, estados: e2, numeros: ambs.map(function (_, i) { return i + 1; }) });
+    }
+    return true;
   }
 
   function vistaNutriente(lista) {
     var r = { titulo: VISTAS.nutriente, puntos: [], tablas: [] };
     var n = nutDeVista(lista);
     if (!n) { r.puntos.push('No hay análisis que coincidan con la búsqueda.'); return r; }
-    r.opciones = selectNutrienteHTML(lista, n);
+    r.opciones = selectNutrienteHTML(lista, n) + selectSepararHTML();
     r.titulo = VISTAS.nutriente + ': ' + n.nombre;
     var conValor = lista.filter(function (x) { return x.v[n.id] != null; });
     var s = estad(n, conValor), u = n.unidad ? ' ' + n.unidad : '';
@@ -389,6 +441,7 @@
       est.push([null, null, st.estado && st.estado.k, null, null, st.estado && st.estado.k, null]);
     });
     r.tablas.push({ titulo: n.nombre + (porLote ? ' por lote' : ' por campo') + (n.unidad ? ' (' + n.unidad + ')' : ''), head: [porLote ? 'Lote' : 'Campo', 'Muestras', 'Promedio', 'Mínimo', 'Máximo', 'Estado', 'Reparto'], body: body, estados: est, numeros: [1, 2, 3, 4] });
+    if (estado.separar === 'ambiente') { r.titulo += ' por ambiente'; separarPorAmbiente(n, lista, r); }
     return r;
   }
 
@@ -1391,6 +1444,7 @@
     }
 
     if (g.tipo === 'ranking') return dibujarRanking(ctx, g, W, H, fuente, hits);
+    if (g.tipo === 'agrupado') return dibujarAgrupado(ctx, g, W, H, fuente, hits);
     if (g.tipo === 'dispersion') return dibujarDispersion(ctx, g, W, H, fuente, hits);
 
     // Barras verticales (o línea) con líneas de referencia
@@ -1476,6 +1530,53 @@
     var lo = Math.floor(min / paso) * paso, hi = Math.ceil(max / paso) * paso, t = [];
     for (var v = lo; v <= hi + paso / 1000; v += paso) t.push(Math.round(v * 1e6) / 1e6);
     return { min: lo, max: hi, ticks: t };
+  }
+
+  function dibujarAgrupado(ctx, g, W, H, fuente, hits) {
+    var todos = [];
+    g.series.forEach(function (sr) { sr.vals.forEach(function (v) { if (v != null) todos.push(v); }); });
+    var esc2 = escalaEje(0, Math.max.apply(null, todos.concat((g.lineas || []).map(function (l) { return l.v; }))) * 1.1 || 1, 5), maxV = esc2.max;
+    ctx.font = '11px ' + fuente;
+    var izq = Math.max.apply(null, esc2.ticks.map(function (t) { return ctx.measureText(fmt(t)).width; })) + 14, arriba = 34, der = 10;
+    var ancho = W - izq - der, paso = ancho / g.cats.length;
+    ctx.font = '12px ' + fuente;
+    var etiquetas = g.cats.map(function (c) { return ctx.measureText(c).width > paso - 4 ? String(c).replace(/^\d\d(\d\d)\/(\d\d)$/, '$1/$2') : c; });
+    var girar = etiquetas.some(function (et) { return ctx.measureText(et).width > paso - 4; });
+    var abajo = girar ? 14 + Math.max.apply(null, etiquetas.map(function (et) { return ctx.measureText(et).width; })) * 0.72 : 26;
+    var alto = H - arriba - abajo;
+    var ns = g.series.length, grupo = Math.min(paso * 0.8, ns * 34), barra = Math.max(3, (grupo - (ns - 1) * 2) / ns);
+    function Y(v) { return arriba + alto - alto * v / maxV; }
+    ctx.strokeStyle = '#ececed'; ctx.lineWidth = 1; ctx.fillStyle = '#6b6b70'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    esc2.ticks.forEach(function (t) { var y = Math.round(Y(t)) + .5; ctx.beginPath(); ctx.moveTo(izq, y); ctx.lineTo(W - der, y); ctx.stroke(); ctx.fillText(fmt(t), izq - 6, y); });
+    var mostrarValores = g.cats.length * ns <= 18;
+    g.cats.forEach(function (c, i) {
+      var x0 = izq + paso * i + (paso - grupo) / 2;
+      g.series.forEach(function (sr, k) {
+        var v = sr.vals[i]; if (v == null) return;
+        var x = x0 + k * (barra + 2), y = Y(v), h = arriba + alto - y, rr = Math.min(4, barra / 2, h);
+        ctx.fillStyle = sr.color; ctx.beginPath();
+        ctx.moveTo(x, arriba + alto); ctx.lineTo(x, y + rr); ctx.quadraticCurveTo(x, y, x + rr, y); ctx.lineTo(x + barra - rr, y); ctx.quadraticCurveTo(x + barra, y, x + barra, y + rr); ctx.lineTo(x + barra, arriba + alto); ctx.closePath(); ctx.fill();
+        if (mostrarValores) { ctx.fillStyle = '#222226'; ctx.font = '600 10px ' + fuente; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillText(fmt(v), x + barra / 2, y - 2); }
+        hits.push({ x: x - 1, y: arriba, w: barra + 2, h: alto, html: '<b>' + esc(c) + ' · ' + esc(sr.nombre) + '</b><br>' + fmt(v) + (g.unidad ? ' ' + esc(g.unidad) : '') + (g.clasif ? ' · ' + esc(g.clasif(v)) : '') + '<br><small>' + sr.cuentas[i] + ' muestras</small>' });
+      });
+      ctx.fillStyle = '#222226'; ctx.font = '12px ' + fuente;
+      var et = etiquetas[i];
+      if (girar) {
+        ctx.save(); ctx.translate(izq + paso * i + paso / 2 + 4, arriba + alto + 8); ctx.rotate(-Math.PI / 4); ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillText(et, 0, 0); ctx.restore();
+      } else { ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillText(et, izq + paso * i + paso / 2, arriba + alto + 6); }
+    });
+    ctx.strokeStyle = '#5B5B5F'; ctx.beginPath(); ctx.moveTo(izq, arriba + alto + .5); ctx.lineTo(W - der, arriba + alto + .5); ctx.stroke();
+    ctx.setLineDash([6, 4]); ctx.lineWidth = 1.5;
+    (g.lineas || []).forEach(function (l, i) {
+      var y = Math.round(Y(l.v)) + .5;
+      ctx.strokeStyle = '#5B5B5F'; ctx.beginPath(); ctx.moveTo(izq, y); ctx.lineTo(W - der, y); ctx.stroke();
+      ctx.font = '11px ' + fuente; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+      var ly = y - 2 - (i && Math.abs(Y(g.lineas[0].v) - Y(l.v)) < 14 ? 12 : 0), lw = ctx.measureText(l.t).width;
+      ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.fillRect(W - der - lw - 5, ly - 12, lw + 5, 12);
+      ctx.fillStyle = '#5B5B5F'; ctx.fillText(l.t, W - der - 2, ly);
+    });
+    ctx.setLineDash([]);
+    return hits;
   }
 
   function dibujarRanking(ctx, g, W, H, fuente, hits) {
@@ -1989,6 +2090,7 @@
     if ($('f-campo').value) p.push('Campo: ' + $('f-campo').value);
     if ($('f-campania').value) p.push('Campaña: ' + $('f-campania').value);
     if ($('f-anio').value) p.push('Año: ' + $('f-anio').value);
+    if ($('f-ambiente').value) p.push('Ambiente: ' + ($('f-ambiente').value === '__sin' ? 'sin ambiente' : $('f-ambiente').value));
     if ($('f-nutriente').value) p.push('Nutriente: ' + nutPorId($('f-nutriente').value).nombre);
     if ($('f-texto').value.trim()) p.push('Búsqueda: «' + $('f-texto').value.trim() + '»');
     return p.length ? p.join(' · ') : 'Todos los análisis cargados';
@@ -2206,10 +2308,10 @@
 
     document.querySelectorAll('[data-cerrar]').forEach(function (b) { b.addEventListener('click', function () { b.closest('dialog').close(); }); });
 
-    ['f-texto', 'f-campo', 'f-campania', 'f-anio', 'f-nutriente'].forEach(function (id) {
+    ['f-texto', 'f-campo', 'f-campania', 'f-anio', 'f-ambiente', 'f-nutriente'].forEach(function (id) {
       $(id).addEventListener(id === 'f-texto' ? 'input' : 'change', function () { if (id === 'f-campo' && $('f-campo').value) estado.campo = $('f-campo').value; refrescar(); });
     });
-    $('btn-limpiar').addEventListener('click', function () { ['f-texto', 'f-campo', 'f-campania', 'f-anio', 'f-nutriente'].forEach(function (id) { $(id).value = ''; }); refrescar(); });
+    $('btn-limpiar').addEventListener('click', function () { ['f-texto', 'f-campo', 'f-campania', 'f-anio', 'f-ambiente', 'f-nutriente'].forEach(function (id) { $(id).value = ''; }); refrescar(); });
 
     document.querySelectorAll('.pestana').forEach(function (b) { b.addEventListener('click', function () { estado.vista = b.dataset.vista; refrescar(); }); });
     $('sec-eval').addEventListener('change', function (e) {
@@ -2247,6 +2349,7 @@
       if (op === 'pobj') { panelCfg.pObj = e.target.value.trim() === '' ? null : numero(e.target.value); guardarPanel(); }
       if (op === 'factorp') { var fp = numero(e.target.value); if (fp != null && fp > 0) { panelCfg.factorP = fp; guardarPanel(); } }
       if (op === 'campo') estado.campo = e.target.value;
+      if (op === 'separar') estado.separar = e.target.value;
       if (op === 'nut') $('f-nutriente').value = e.target.value;
       if (op === 'por') { estado.compPor = e.target.value; estado.ensSel = null; }
       if (op === 'ens') estado.ensSel = Array.prototype.map.call($('vista-opciones').querySelectorAll('[data-op="ens"]:checked'), function (c) { return c.value; });
