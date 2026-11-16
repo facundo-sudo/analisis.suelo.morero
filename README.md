@@ -31,7 +31,7 @@ Importar este repositorio en Vercel y aceptar. No hay que configurar nada: es un
      - Los nombres de campos aparecen solo en listas de uso interno (elegir vidrieras).
    - **General**: resumen por nutriente (promedio, mínimo, máximo, estado y reparto de muestras), gráfico del reparto por nivel y promedio por campo, con sugerencias.
    - **Por campo**: todos los lotes del campo con los valores pintados según su nivel y gráfico por lote.
-   - **Separar por ambiente** (en «Por nutriente» y «Por campo»): gráfico con una barra por ambiente en cada campaña, tabla por ambiente (promedio, mediana, mínimo, máximo, reparto), tabla campaña × ambiente y conclusión sobre la diferencia entre ambientes.
+   - **Separar por ambiente** (en «Por nutriente» y «Por campo»): gráfico con una barra por ambiente en cada campaña, gráfico y tabla con cuántas muestras de cada ambiente quedan debajo del umbral, entre umbrales y por encima (cantidad y %), tabla por ambiente (promedio, mediana, mínimo, máximo), tablas campaña × ambiente (promedio y muestras debajo del umbral) y conclusión sobre la diferencia entre ambientes.
    - **Por nutriente**: promedio por campo (o por lote, si se eligió un campo) y, con muchos campos, la evolución por campaña.
    - **Comparar**: elegir dos o más campañas, campos o ensayos y ver las diferencias en tabla, texto y gráfico.
    - **Descargar PDF**: informe con el logo, la selección, la evaluación, el gráfico y las tablas.

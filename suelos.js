@@ -357,6 +357,22 @@
     return '<label>Separar por ambiente <select data-op="separar"><option value="">No (todos juntos)</option><option value="ambiente"' + (estado.separar === 'ambiente' ? ' selected' : '') + '>Sí: loma, media loma y bajo</option></select></label>';
   }
   // Gráfico agrupado (campaña × ambiente), tabla y conclusiones por ambiente para un nutriente.
+  // Las tres franjas de un nutriente según sus umbrales, con nombre, color y clave de clasificación.
+  function franjasUmbral(n) {
+    var u = n.unidad ? ' ' + n.unidad : '', b = fmt(n.bajo), a = fmt(n.alto);
+    if (n.tipo === 'rango') return [
+      { k: 'bajo', t: (n.id === 'ph' ? 'Ácido' : 'Debajo') + ' (menos de ' + b + u + ')', c: COLORES.bajo },
+      { k: 'bien', t: 'Óptimo (' + b + ' a ' + a + u + ')', c: COLORES.bien },
+      { k: 'alto', t: (n.id === 'ph' ? 'Alcalino' : 'Encima') + ' (más de ' + a + u + ')', c: COLORES.alto }];
+    if (n.tipo === 'menos') return [
+      { k: 'bien', t: 'Normal (menos de ' + b + u + ')', c: COLORES.bien },
+      { k: 'medio', t: 'Moderado (' + b + ' a ' + a + u + ')', c: COLORES.medio },
+      { k: 'bajo', t: 'Elevado (' + a + u + ' o más)', c: COLORES.bajo }];
+    var f = [{ k: 'bajo', t: 'Debajo del umbral (menos de ' + b + u + ')', c: COLORES.bajo }];
+    if (Number(n.bajo) < Number(n.alto)) f.push({ k: 'medio', t: 'Entre ' + b + ' y ' + a + u, c: COLORES.medio });
+    f.push({ k: 'bien', t: 'Por encima (' + a + u + ' o más)', c: COLORES.bien });
+    return f;
+  }
   function separarPorAmbiente(n, lista, r) {
     var conV = lista.filter(function (x) { return x.v[n.id] != null; });
     var ambs = familiaAmbientes(conV, 1), u = n.unidad ? ' ' + n.unidad : '';
@@ -381,12 +397,22 @@
       clasif: function (v) { var c = clasificar(n, v); return c ? c.txt : ''; },
       leyenda: series.map(function (sr) { return { c: sr.color, t: sr.nombre }; }).concat(lineas.length ? [{ c: null, t: 'Línea punteada: límites de interpretación' }] : [])
     };
+    var franjas = franjasUmbral(n);
     var body = [], est = [];
     porAmb.forEach(function (o) {
-      body.push([o.a, String(o.s.n), fmt(o.s.prom), fmt(o.med), fmt(o.s.min), fmt(o.s.max), o.s.estado ? o.s.estado.txt : '–', textoReparto(o.s)]);
-      est.push([null, null, o.s.estado && o.s.estado.k, clasificar(n, o.med) && clasificar(n, o.med).k, null, null, o.s.estado && o.s.estado.k, null]);
+      body.push([o.a, String(o.s.n), fmt(o.s.prom), fmt(o.med), fmt(o.s.min), fmt(o.s.max)].concat(franjas.map(function (f) { return o.s.cuenta[f.k] + ' (' + pct(o.s.cuenta[f.k], o.s.n) + '%)'; })));
+      est.push([null, null, o.s.estado && o.s.estado.k, clasificar(n, o.med) && clasificar(n, o.med).k, null, null].concat(franjas.map(function (f) { return o.s.cuenta[f.k] ? f.k : null; })));
     });
-    r.tablas.unshift({ titulo: n.nombre + ' por ambiente' + (n.unidad ? ' (' + n.unidad + ')' : ''), head: ['Ambiente', 'Muestras', 'Promedio', 'Mediana', 'Mínimo', 'Máximo', 'Estado', 'Reparto'], body: body, estados: est, numeros: [1, 2, 3, 4, 5] });
+    var tot = estad(n, porAmb.reduce(function (a, o) { return a.concat(o.l); }, []));
+    body.push(['Total', String(tot.n), fmt(tot.prom), fmt(cuantil(porAmb.reduce(function (a, o) { return a.concat(valoresDe(o.l, n.id)); }, []), 0.5)), fmt(tot.min), fmt(tot.max)].concat(franjas.map(function (f) { return tot.cuenta[f.k] + ' (' + pct(tot.cuenta[f.k], tot.n) + '%)'; })));
+    est.push([null, null, null, null, null, null].concat(franjas.map(function () { return null; })));
+    r.tablas.unshift({ titulo: n.nombre + ' por ambiente: cantidad de muestras por encima y por debajo del umbral', head: ['Ambiente', 'Muestras', 'Promedio', 'Mediana', 'Mínimo', 'Máximo'].concat(franjas.map(function (f) { return f.t; })), body: body, estados: est, numeros: [1, 2, 3, 4, 5, 6, 7, 8], ultimaPromedio: true });
+    r.puntos.push('Debajo del umbral (' + franjas[0].t.replace(/^[^(]*\(/, '').replace(')', '') + '): ' + porAmb.map(function (o) { var f0 = franjas[0].k; return o.a + ' ' + o.s.cuenta[f0] + ' de ' + o.s.n + ' (' + pct(o.s.cuenta[f0], o.s.n) + '%)'; }).join(' · ') + '.');
+    // Gráfico de reparto por ambiente (100%)
+    var graficoFranjas = {
+      tipo: 'apilado', titulo: n.corto + ' por ambiente: % de muestras por franja', cats: porAmb.map(function (o) { return o.a; }),
+      series: franjas.map(function (f) { return { nombre: f.t, color: f.c, vals: porAmb.map(function (o) { return o.s.n ? o.s.cuenta[f.k] * 100 / o.s.n : 0; }), cuentas: porAmb.map(function (o) { return o.s.cuenta[f.k]; }) }; })
+    };
     if (camps.length > 1) {
       var b2 = [], e2 = [];
       camps.forEach(function (c, i) {
@@ -395,7 +421,19 @@
         b2.push(fila); e2.push(ef);
       });
       r.tablas.splice(1, 0, { titulo: 'Promedio por campaña y ambiente (entre paréntesis, cantidad de muestras)', head: ['Campaña'].concat(ambs), body: b2, estados: e2, numeros: ambs.map(function (_, i) { return i + 1; }) });
+      var b3 = [], e3 = [], f0 = franjas[0];
+      camps.forEach(function (c) {
+        var fila = [c], ef = [null];
+        porAmb.forEach(function (o) {
+          var l = o.l.filter(function (x) { return x.campania === c; }), m = l.filter(function (x) { var k = clasificar(n, x.v[n.id]); return k && k.k === f0.k; }).length;
+          fila.push(l.length ? m + ' de ' + l.length + ' (' + pct(m, l.length) + '%)' : '–');
+          ef.push(l.length ? (m / l.length >= 0.5 ? 'bajo' : m / l.length >= 0.25 ? 'medio' : 'bien') : null);
+        });
+        b3.push(fila); e3.push(ef);
+      });
+      r.tablas.splice(2, 0, { titulo: 'Muestras ' + f0.t.toLowerCase() + ' por campaña y ambiente', head: ['Campaña'].concat(ambs), body: b3, estados: e3, numeros: ambs.map(function (_, i) { return i + 1; }) });
     }
+    r.graficos = [r.grafico, graficoFranjas];
     return true;
   }
 
