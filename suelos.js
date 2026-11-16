@@ -1152,12 +1152,12 @@
   var CULTIVOS = { maiz: 'maíz', soja: 'soja', trigo: 'trigo' };
   var ESTRATEGIAS = [
     {
-      pilares: ['Zinc adentro y afuera del gránulo: llega parejo a todo el lote', 'Corrige zinc y azufre en la misma pasada, sin labor extra'],
+      pilares: ['Zinc adentro (más del 50% de los gránulos) y afuera (el 100%): llega parejo a todo el lote', 'Corrige zinc y azufre en la misma pasada, sin labor extra'],
       desarrollo: 'Línea Arrancador (maíz, girasol y soja) con tres niveles de zinc: ZN (mezcla + impregnación PROCOTE Zn, 0,21%), Premium (mezcla química con zinc en el grano, 0,5%) y Plus Zinc (Premium + PROCOTE, 0,71%). Mostrar el % de zinc y azufre bien visible en la propuesta y en el remito.',
       piezas: 'Infografía «el X% de nuestros campos tiene zinc bajo»; esquema «zinc adentro (mezcla química) y afuera (impregnación PROCOTE)» del gránulo; cuadro de la línea Arrancador con los tres niveles; video corto de la impregnación en planta; ficha de una página para el CREA; resultados de las franjas como caso.',
       id: 'zn', nut: 'zn', titulo: 'Mezclas con zinc (línea Arrancador con PROCOTE Zn)', producto: 'Arrancador con zinc (ZN o Plus Zinc)', cultivo: 'maiz', precio: 180, rinde: 8, costo: 8, conLitros: true,
       lema: 'Zinc adentro y afuera del gránulo',
-      posicion: 'Adentro: en las versiones Premium y Plus Zinc, la mezcla química lleva nitrógeno, fósforo, azufre y zinc juntos en cada grano. Afuera: la impregnación con PROCOTE Zn (YaraVita, aprox. 700 g Zn/L) que hacemos en nuestra planta recubre todos los gránulos de la mezcla, también los de MAP. El MAP sostiene el fósforo de la mezcla.',
+      posicion: 'Adentro, en más del 50% de los gránulos: en las versiones Premium y Plus Zinc, los gránulos de la mezcla química llevan nitrógeno, fósforo, azufre y zinc juntos. Afuera, en el 100% de los gránulos: la impregnación con PROCOTE Zn (YaraVita, aprox. 700 g Zn/L) que hacemos en nuestra planta recubre todos los gránulos de la mezcla, también los de MAP, que de otra forma no llevarían zinc. El MAP sostiene el fósforo de la mezcla.',
       propuesta: 'Línea Arrancador para maíz, girasol y soja, con el nivel de zinc según el análisis: ZN, Premium o Plus Zinc. Corrige zinc y azufre, sostiene el fósforo y va en una sola pasada.',
       objeciones: '«Ya trato la semilla con zinc»: la semilla lleva poca cantidad; la mezcla aporta zinc al suelo que explora la raíz y se complementan. «Es caro»: se paga con pocos kilos de grano (ver economía). «No vi respuesta»: medirlo con franjas en su propio campo.',
       apuntar: 'Maíz y trigo en lotes con zinc deficiente, sobre todo con pH alto, poca materia orgánica o suelos arenosos (lomas).',
