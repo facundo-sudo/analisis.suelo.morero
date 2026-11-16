@@ -250,6 +250,15 @@ body { padding-bottom: 70px; }
 .concl-bien { background: var(--bien-fondo); border-color: #bfe0cb; }
 .concl-bien .concl-ic, .concl-bien .concl-niv { background: var(--bien); }
 .plan-op { grid-template-columns: repeat(auto-fit, minmax(180px, 240px)); }
+.concl-oportunidad { background: var(--bien-fondo); border-color: #bfe0cb; }
+.concl-oportunidad .concl-ic, .concl-oportunidad .concl-niv { background: var(--bien); }
+.concl-accion { background: var(--medio-fondo); border-color: #efd9a6; }
+.concl-accion .concl-ic, .concl-accion .concl-niv { background: #a86a00; }
+.concl-objecion { background: var(--alto-fondo); border-color: #c4d6ee; }
+.concl-objecion .concl-ic, .concl-objecion .concl-niv { background: var(--alto); }
+.concl-riesgo { background: var(--bajo-fondo); border-color: #e7c3c6; }
+.concl-riesgo .concl-ic, .concl-riesgo .concl-niv { background: var(--bajo); }
+.input-ha { width: 80px; padding: 4px 6px; text-align: right; }
 .grafico-tip {
   position: absolute; pointer-events: none; z-index: 5;
   background: var(--blanco); border: 1px solid var(--borde); border-radius: 8px;
