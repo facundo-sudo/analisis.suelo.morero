@@ -1153,17 +1153,17 @@
   var ESTRATEGIAS = [
     {
       pilares: ['Zinc adentro y afuera del gránulo: llega parejo a todo el lote', 'Corrige zinc y azufre en la misma pasada, sin labor extra'],
-      desarrollo: 'Línea de mezclas con zinc con nombre propio: MAP + MicroEssentials SZ (60/40 o 50/50) recubierta con PROCOTE Zn, con el % de zinc y azufre bien visible en la propuesta y en el remito.',
-      piezas: 'Infografía «el X% de nuestros campos tiene zinc bajo»; esquema «zinc adentro (MicroEssentials) y afuera (PROCOTE)» del gránulo; video corto del recubrimiento en planta; ficha de una página para el CREA; resultados de las franjas como caso.',
-      id: 'zn', nut: 'zn', titulo: 'Mezclas con zinc (MAP + MicroEssentials SZ + PROCOTE Zn)', producto: 'mezcla MAP + MicroEssentials SZ con PROCOTE Zn', cultivo: 'maiz', precio: 180, rinde: 8, costo: 8, conLitros: true,
+      desarrollo: 'Línea Arrancador (maíz, girasol y soja) con tres niveles de zinc: ZN (mezcla + impregnación PROCOTE Zn, 0,21%), Premium (mezcla química con zinc en el grano, 0,5%) y Plus Zinc (Premium + PROCOTE, 0,71%). Mostrar el % de zinc y azufre bien visible en la propuesta y en el remito.',
+      piezas: 'Infografía «el X% de nuestros campos tiene zinc bajo»; esquema «zinc adentro (mezcla química) y afuera (impregnación PROCOTE)» del gránulo; cuadro de la línea Arrancador con los tres niveles; video corto de la impregnación en planta; ficha de una página para el CREA; resultados de las franjas como caso.',
+      id: 'zn', nut: 'zn', titulo: 'Mezclas con zinc (línea Arrancador con PROCOTE Zn)', producto: 'Arrancador con zinc (ZN o Plus Zinc)', cultivo: 'maiz', precio: 180, rinde: 8, costo: 8, conLitros: true,
       lema: 'Zinc adentro y afuera del gránulo',
-      posicion: 'Adentro: MicroEssentials SZ (12-40-0-10S-1Zn) lleva nitrógeno, fósforo, azufre y zinc fusionados en cada grano, con azufre en dos formas (sulfato, disponible enseguida, y elemental, de liberación gradual). Afuera: PROCOTE Zn (YaraVita, aprox. 700 g Zn/L) se pulveriza en la mezcladora y recubre todos los gránulos de la mezcla, también los de MAP. El MAP sostiene el fósforo de la mezcla.',
-      propuesta: 'Mezcla MAP + MicroEssentials SZ (60/40 o 50/50) recubierta con PROCOTE Zn en la planta de MORERO, a medida de tu análisis. Corrige zinc y azufre, sostiene el fósforo y va en una sola pasada.',
+      posicion: 'Adentro: en las versiones Premium y Plus Zinc, la mezcla química lleva nitrógeno, fósforo, azufre y zinc juntos en cada grano. Afuera: la impregnación con PROCOTE Zn (YaraVita, aprox. 700 g Zn/L) que hacemos en nuestra planta recubre todos los gránulos de la mezcla, también los de MAP. El MAP sostiene el fósforo de la mezcla.',
+      propuesta: 'Línea Arrancador para maíz, girasol y soja, con el nivel de zinc según el análisis: ZN, Premium o Plus Zinc. Corrige zinc y azufre, sostiene el fósforo y va en una sola pasada.',
       objeciones: '«Ya trato la semilla con zinc»: la semilla lleva poca cantidad; la mezcla aporta zinc al suelo que explora la raíz y se complementan. «Es caro»: se paga con pocos kilos de grano (ver economía). «No vi respuesta»: medirlo con franjas en su propio campo.',
       apuntar: 'Maíz y trigo en lotes con zinc deficiente, sobre todo con pH alto, poca materia orgánica o suelos arenosos (lomas).',
       calendario: 'Reunión y propuesta antes de la compra de insumos de maíz (junio–agosto); entrega de mezclas para maíz (septiembre–diciembre) y trigo (mayo–julio); resultados de ensayos en la cosecha (marzo–abril).',
       notas: { ph: 'Con pH alto el zinc está menos disponible.', mo: 'La materia orgánica es la principal reserva de zinc del suelo.', arena: 'Los suelos arenosos tienen menos zinc.', p: 'Mucho fósforo puede inducir deficiencia de zinc (interacción P–Zn).' },
-      mensaje: 'Te proponemos nuestra mezcla de MAP + MicroEssentials SZ recubierta con PROCOTE Zn de Yara: zinc adentro y afuera de cada gránulo, más azufre, en la misma pasada.'
+      mensaje: 'Te proponemos nuestra línea Arrancador con zinc: mezcla química + MAP con impregnación de PROCOTE Zn de Yara. Zinc adentro y afuera de cada gránulo, más azufre, en la misma pasada.'
     },
     {
       pilares: ['El fósforo se acumula: es inversión en el campo, no gasto', 'Dosis por ambiente: más donde falta, menos donde sobra'],
@@ -1223,12 +1223,11 @@
     }
   ];
   var MEZCLAS_ZN = [
-    { v: 0.4, t: 'MAP 60 / MicroEssentials SZ 40', g: 'aprox. 11-47-0-4S' },
-    { v: 0.5, t: 'MAP 50 / MicroEssentials SZ 50', g: 'aprox. 11,5-46-0-5S' },
-    { v: 1, t: 'MicroEssentials SZ sola', g: '12-40-0-10S-1Zn' },
-    { v: 0, t: 'Mezcla sin zinc (MAP o NPS)', g: '' }
+    // Línea Arrancador de MORERO. tz = nombre de la versión con impregnación PROCOTE Zn.
+    { v: 0.5, t: 'Arrancador Premium', tz: 'Arrancador Plus Zinc', g: 'maíz 12-47-8S · girasol 12-49-6S' },
+    { v: 0, t: 'Arrancador (sin zinc propio)', tz: 'Arrancador ZN', g: 'maíz 7-40-5S · girasol 8-43-4S · soja 0-40-5S' }
   ];
-  function mezclaZn(v) { for (var i = 0; i < MEZCLAS_ZN.length; i++) if (MEZCLAS_ZN[i].v === Number(v)) return MEZCLAS_ZN[i]; return { v: v, t: 'Mezcla con ' + fmt(v, 2) + '% de Zn', g: '' }; }
+  function mezclaZn(v) { for (var i = 0; i < MEZCLAS_ZN.length; i++) if (MEZCLAS_ZN[i].v === Number(v)) return MEZCLAS_ZN[i]; return { v: v, t: 'Mezcla con ' + fmt(v, 2) + '% de Zn', tz: 'Mezcla con ' + fmt(v, 2) + '% de Zn + PROCOTE Zn', g: '' }; }
   function estPorId(id) { for (var i = 0; i < ESTRATEGIAS.length; i++) if (ESTRATEGIAS[i].id === id) return ESTRATEGIAS[i]; return null; }
   var CLAVE_EST = 'suelos.estrategias';
   var estCfg = Object.assign({ grupo: [], prod: {} }, leer(CLAVE_EST, {}) || {});
@@ -1278,8 +1277,8 @@
     r.kpis.push({ t: 'Campos propios con nivel ' + problema, v: camposDef.length + ' de ' + porCampo.length, sub: 'mediana de su última campaña', k: camposDef.length / porCampo.length >= 0.5 ? 'bajo' : 'medio' });
     if (kgGrano != null) r.kpis.push({ t: 'Se paga con', v: fmt(kgGrano, 0) + ' kg de ' + cultivo + '/ha', sub: equilibrio != null ? fmt(equilibrio, 1) + '% de un rinde de ' + fmt(cfg.rinde) + ' t/ha' : '', k: 'bien' });
     if (pctProcote != null) {
-      r.kpis.push({ t: 'Mezcla + PROCOTE Zn', v: fmt(pctProcote, 2) + '% Zn', sub: fmt(cfg.litros) + ' L/t · ' + fmt(kgZn1, 2) + ' kg Zn/ha con ' + fmt(cfg.dosis, 0) + ' kg/ha' });
-      if (cfg.znBase) r.kpis.push({ t: mezclaZn(cfg.znBase).t + ' + PROCOTE', v: fmt(pctConZn, 2) + '% Zn', sub: fmt(cfg.znBase, 2) + '% + ' + fmt(pctProcote, 2) + '% · ' + fmt(kgZn2, 2) + ' kg Zn/ha con ' + fmt(cfg.dosis, 0) + ' kg/ha' });
+      r.kpis.push({ t: 'Arrancador ZN', v: fmt(pctProcote, 2) + '% Zn', sub: fmt(cfg.litros) + ' L/t · ' + fmt(kgZn1, 2) + ' kg Zn/ha con ' + fmt(cfg.dosis, 0) + ' kg/ha' });
+      if (cfg.znBase) r.kpis.push({ t: mezclaZn(cfg.znBase).tz, v: fmt(pctConZn, 2) + '% Zn', sub: fmt(cfg.znBase, 2) + '% + ' + fmt(pctProcote, 2) + '% · ' + fmt(kgZn2, 2) + ' kg Zn/ha con ' + fmt(cfg.dosis, 0) + ' kg/ha' });
     }
 
     // ----- Los datos (para presentar) -----
@@ -1327,10 +1326,9 @@
     concluir('accion', 'Embudo para captar y convencer',
       'Atraer: el dato de nuestros campos sobre ' + n.nombre.toLowerCase() + '. Interesar: análisis o interpretación sin cargo de su campo. Convencer: vidrieras en nuestros campos y franjas en el suyo. Cerrar: propuesta escrita con su propio análisis. Fidelizar: re-muestreo y seguimiento del resultado.',
       'Ponerle una meta a cada etapa: cuántos productores ven el dato, cuántos piden su análisis, cuántos hacen la franja y cuántos compran.');
-    if (pctProcote != null) concluir('oportunidad', 'Opciones de mezcla con zinc',
-      MEZCLAS_ZN.filter(function (m) { return m.v > 0 && m.v < 1; }).map(function (m) { return m.t + ' + PROCOTE Zn: ' + fmt(m.v + pctProcote, 2) + '% de Zn (' + m.g + '), ' + fmt(cfg.dosis * (m.v + pctProcote) / 100, 2) + ' kg Zn/ha con ' + fmt(cfg.dosis, 0) + ' kg/ha'; }).join(' · ') +
-      '. Cualquier otra mezcla + PROCOTE Zn (' + fmt(cfg.litros) + ' L/t): +' + fmt(pctProcote, 2) + '% de Zn.',
-      'Estrategia: 60/40 cuando se quiere cuidar más el fósforo, 50/50 cuando el zinc y el azufre son más críticos (' + camposDef.length + ' de nuestros campos con zinc bajo). Ofrecer opciones ayuda al productor a decidir. ' +
+    if (pctProcote != null) concluir('oportunidad', 'La línea Arrancador: tres niveles de zinc',
+      'Arrancador ZN (mezcla + PROCOTE Zn, ' + fmt(cfg.litros) + ' L/t): ' + fmt(pctProcote, 2) + '% de Zn, ' + fmt(cfg.dosis * pctProcote / 100, 2) + ' kg Zn/ha · Arrancador Premium (zinc en el grano): 0,5% · Arrancador Plus Zinc (Premium + PROCOTE): ' + fmt(0.5 + pctProcote, 2) + '% de Zn, ' + fmt(cfg.dosis * (0.5 + pctProcote) / 100, 2) + ' kg Zn/ha. Kilos de zinc con ' + fmt(cfg.dosis, 0) + ' kg/ha de mezcla.',
+      'Estrategia: ZN como opción estándar en todos los lotes; Plus Zinc para lotes con zinc muy bajo (menos de ' + fmt(bajo / 2) + ' ppm) y en maíz y girasol de alto rinde (' + camposDef.length + ' de nuestros campos con zinc bajo). Ofrecer los niveles ayuda al productor a decidir. ' +
       'Ojo técnico: es un aporte localizado en la línea de siembra, distribuido en cada gránulo; en lotes muy deficientes (menos de ' + fmt(bajo / 2) + ' ppm) el asesor puede indicar una dosis mayor de zinc. Conviene decirlo en el CREA antes de que lo pregunten.');
     if (kgGrano != null) concluir('oportunidad', 'Argumento económico para el productor: se paga con ' + fmt(kgGrano, 0) + ' kg de ' + cultivo + ' por hectárea',
       'Costo ' + plata(cfg.costo) + '/ha y ' + cultivo + ' a ' + plata(cfg.precio) + '/t' + (equilibrio != null ? ': alcanza con ' + fmt(equilibrio, 1) + '% más de rinde sobre ' + fmt(cfg.rinde) + ' t/ha.' : '.'),
@@ -1399,7 +1397,7 @@
         'Si pasa en nuestros campos, puede estar pasando en el tuyo. ¿Sabés cómo está? Traenos tu análisis y lo interpretamos juntos, sin cargo.'].join('\n') },
       { titulo: 'La solución', texto: [
         'Para el problema que encontramos en nuestros campos (' + n.nombre.toLowerCase() + ' ' + problema + ' en el ' + pctDef + '% de los análisis):',
-        E.mensaje + (pctProcote != null ? (cfg.znBase ? ' La mezcla ' + mezclaZn(cfg.znBase).t + ' con PROCOTE Zn lleva ' + fmt(pctConZn, 2) + '% de zinc (' + fmt(cfg.znBase, 2) + '% + ' + fmt(pctProcote, 2) + '%).' : ' Con ' + fmt(cfg.litros) + ' L/t de PROCOTE Zn la mezcla suma ' + fmt(pctProcote, 2) + '% de zinc.') : ''),
+        E.mensaje + (pctProcote != null ? (cfg.znBase ? ' El ' + mezclaZn(cfg.znBase).tz + ' lleva ' + fmt(pctConZn, 2) + '% de zinc (' + fmt(cfg.znBase, 2) + '% + ' + fmt(pctProcote, 2) + '% de PROCOTE).' : ' Con ' + fmt(cfg.litros) + ' L/t de PROCOTE Zn la mezcla suma ' + fmt(pctProcote, 2) + '% de zinc.') : ''),
         kgGrano != null ? 'Se paga con unos ' + fmt(kgGrano, 0) + ' kg de ' + cultivo + ' por hectárea.' : '',
         '¿Vemos tu análisis y te armamos la propuesta?'].filter(Boolean).join('\n') },
       { titulo: 'Invitación a ver la vidriera', texto: [
