@@ -31,6 +31,7 @@
         <button type="button" class="boton" id="btn-agregar">Agregar análisis a mano</button>
         <button type="button" class="boton" id="btn-modelo">Bajar planilla modelo</button>
         <button type="button" class="boton" id="btn-nutrientes">Nutrientes y rangos</button>
+        <button type="button" class="boton" id="btn-umbrales">Ver umbrales</button>
       </div>
       <p class="ayuda">El Excel se lee solo en este navegador; no se sube a ningún servidor. Cada fila es una muestra: campo, lote, campaña y un valor por nutriente (pH, MO, P, N-Nitratos, S, Zn, etc.). Si no sabés cómo armarlo, bajá la planilla modelo.</p>
     </section>
@@ -75,6 +76,12 @@
       <div id="panel-mensajes" class="mensajes"></div>
       <div id="eval-tabla" class="tabla-caja"></div>
 
+      <details class="umbrales" id="umbrales">
+        <summary>Ver los umbrales usados para clasificar (bajo, medio, adecuado)</summary>
+        <div id="umbrales-tabla" class="tabla-caja"></div>
+      </details>
+
+      <label class="check"><input type="checkbox" id="pdf-umbrales" checked> Incluir los umbrales en el PDF</label>
       <div class="botones acciones">
         <button type="button" class="boton boton-primario" id="btn-pdf">Descargar PDF</button>
       </div>

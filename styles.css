@@ -326,3 +326,17 @@ td.c-alto { background: var(--alto-fondo); }
 .msg-tit { margin: 0; font-weight: 700; color: var(--texto); }
 .msg-txt { margin: 0; font-size: .9rem; line-height: 1.45; color: var(--texto); }
 .msg-card .botones { margin-top: 2px; }
+.umbrales { border: 1px solid var(--borde); border-radius: var(--radio); padding: 10px 12px; margin-bottom: 12px; }
+.umbrales summary { cursor: pointer; font-weight: 600; color: var(--bordo); min-height: 28px; }
+.umbrales[open] summary { margin-bottom: 8px; }
+.check { display: flex; align-items: center; gap: 8px; font-weight: 400; color: var(--texto); margin-bottom: 10px; }
+.check input { width: auto; }
+@media (max-width: 720px) {
+  #umbrales-tabla table, #umbrales-tabla tbody, #umbrales-tabla tr, #umbrales-tabla td { display: block; width: 100%; }
+  #umbrales-tabla thead { display: none; }
+  #umbrales-tabla tr { border: 1px solid var(--borde); border-radius: 8px; padding: 6px 0; margin-bottom: 8px; }
+  #umbrales-tabla td { border: none; padding: 3px 10px; }
+  #umbrales-tabla td:first-child { font-weight: 700; color: var(--texto); }
+  #umbrales-tabla td:nth-child(2), #umbrales-tabla td:last-child { font-size: .82rem; color: var(--gris); }
+  #umbrales-tabla td:last-child::before { content: 'Fuente: '; }
+}

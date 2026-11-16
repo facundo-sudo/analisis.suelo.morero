@@ -1594,6 +1594,30 @@
       (c.accion ? '<p class="concl-acc">' + c.accion + '</p>' : '') + '</div></div>';
   }
 
+  // ---------- Umbrales de interpretación ----------
+  var REF_MORERO = ['ph', 'ce', 'zn', 's', 'psi', 'cic'];
+  function fuenteUmbral(n) {
+    if (n.tipo === 'info') return 'No se interpreta (solo dato)';
+    var ini = NUTRIENTES_INICIALES.filter(function (x) { return x.id === n.id; })[0];
+    if (!ini) return 'Agregado en «Nutrientes y rangos»';
+    if (Number(ini.bajo) !== Number(n.bajo) || Number(ini.alto) !== Number(n.alto) || ini.tipo !== n.tipo) return 'Ajustado en «Nutrientes y rangos»';
+    return REF_MORERO.indexOf(n.id) >= 0 ? 'Hoja «referencias» de MORERO' : 'Orientativo (región pampeana)';
+  }
+  function tablaUmbrales(nuts) {
+    var body = [], est = [];
+    nuts.forEach(function (n) {
+      var u = n.unidad ? ' ' + n.unidad : '', b = fmt(n.bajo), a = fmt(n.alto), crit, c1, c2, c3, k;
+      if (n.tipo === 'info') { crit = 'Solo dato'; c1 = c2 = c3 = '–'; k = [null, null, null]; }
+      else if (n.tipo === 'rango') { crit = 'Rango óptimo'; c1 = (n.id === 'ph' ? 'Ácido: ' : 'Bajo: ') + 'menos de ' + b + u; c2 = 'Óptimo: ' + b + ' a ' + a + u; c3 = (n.id === 'ph' ? 'Alcalino: ' : 'Alto: ') + 'más de ' + a + u; k = ['bajo', 'bien', 'alto']; }
+      else if (n.tipo === 'menos') { crit = 'Menos es mejor'; c1 = 'Elevado: ' + a + u + ' o más'; c2 = 'Moderado: ' + b + ' a ' + a + u; c3 = 'Normal: menos de ' + b + u; k = ['bajo', 'medio', 'bien']; }
+      else { crit = 'Más es mejor'; c1 = 'Bajo: menos de ' + b + u; c2 = Number(n.bajo) < Number(n.alto) ? 'Medio: ' + b + ' a ' + a + u : '–'; c3 = 'Adecuado: ' + a + u + ' o más'; k = ['bajo', Number(n.bajo) < Number(n.alto) ? 'medio' : null, 'bien']; }
+      body.push([n.nombre + (n.corto !== n.nombre ? ' (' + n.corto + ')' : ''), crit, c1, c2, c3, fuenteUmbral(n)]);
+      est.push([null, null, k[0], k[1], k[2], null]);
+    });
+    return { titulo: 'Umbrales usados para clasificar', head: ['Nutriente', 'Criterio', 'Problema', 'Intermedio', 'Bien', 'De dónde sale'], body: body, estados: est,
+      nota: 'Se cambian en «Nutrientes y rangos» (sección 1). El índice de fertilidad del Panel experto puntúa cada nutriente: adecuado 100, medio o alcalino 60, bajo 20.' };
+  }
+
   // ---------- Pantalla ----------
   function tablaHTML(tb) {
     var num = tb.numeros || [];
@@ -1645,6 +1669,8 @@
     ultimosMensajes = {};
     $('panel-mensajes').innerHTML = r.mensajes && r.mensajes.length ? '<p class="eval-titulo">Mensajes listos para enviar a clientes <small>(datos agregados, sin nombres de campos)</small></p><div class="msgs">' + r.mensajes.map(mensajeHTML).join('') + '</div>' : '';
     $('eval-tabla').innerHTML = (r.planOpciones ? '<p class="subtitulo">' + esc(r.planTitulo || 'Plan de fertilización') + '</p><div class="grilla plan-op">' + r.planOpciones + '</div>' : '') + r.tablas.map(tablaHTML).join('');
+    var nutsU = nutsConDatos(lista);
+    $('umbrales-tabla').innerHTML = tablaHTML(tablaUmbrales(nutsU.length ? nutsU : nutrientes)).replace(/^<p class="subtitulo">[^<]*<\/p>/, '');
     $('btn-pdf').disabled = !lista.length;
     tablaDatos(lista);
   }
@@ -2067,8 +2093,10 @@
         y += 8;
       });
 
-      // Tablas
-      r.tablas.forEach(function (tb) {
+      // Tablas (y los umbrales, si se pidió)
+      var tablasPDF = r.tablas.slice();
+      if ($('pdf-umbrales').checked) { var nu = nutsConDatos(filtrados()); tablasPDF.push(tablaUmbrales(nu.length ? nu : nutrientes)); }
+      tablasPDF.forEach(function (tb) {
         if (y > 260) { doc.addPage(); y = 16; }
         doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5); doc.setTextColor.apply(doc, BORDO);
         doc.text(tb.titulo, M, y); y += 2;
@@ -2133,6 +2161,9 @@
     $('btn-agregar').addEventListener('click', function () { abrirAnalisis(null); });
     $('btn-modelo').addEventListener('click', function () { bajarExcel([], 'Planilla modelo analisis de suelo MORERO.xlsx'); });
     $('btn-nutrientes').addEventListener('click', abrirNutrientes);
+    $('btn-umbrales').addEventListener('click', function () { var d = $('umbrales'); d.open = true; d.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+    try { $('pdf-umbrales').checked = localStorage.getItem('suelos.pdfUmbrales') !== 'no'; } catch (e) { /* nada */ }
+    $('pdf-umbrales').addEventListener('change', function (e) { try { localStorage.setItem('suelos.pdfUmbrales', e.target.checked ? 'si' : 'no'); } catch (er) { /* nada */ } });
     $('btn-exportar').addEventListener('click', function () { var l = filtrados(); if (!l.length) { toast('No hay análisis para bajar.'); return; } bajarExcel(l, 'Analisis de suelo MORERO ' + hoyISO() + '.xlsx'); });
     $('btn-borrar-filtrados').addEventListener('click', function () {
       var l = filtrados();
