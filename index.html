@@ -51,6 +51,7 @@
       </div>
       <div class="botones">
         <button type="button" class="boton boton-chico" id="btn-limpiar">Limpiar búsqueda</button>
+        <label class="check" id="caja-excluidos" hidden><input type="checkbox" id="f-excluidos"> <span id="txt-excluidos">Incluir los análisis excluidos</span></label>
       </div>
       <p class="ayuda" id="f-resumen"></p>
     </section>
@@ -92,10 +93,12 @@
     <!-- 4. Datos -->
     <details class="tarjeta" id="sec-datos">
       <summary>Análisis cargados (<span id="datos-cuenta">0</span>) — ver, corregir o borrar</summary>
-      <p class="ayuda">Se muestran los que coinciden con la búsqueda. Tocá «Editar» para corregir un valor.</p>
+      <p class="ayuda">Se muestran los que coinciden con la búsqueda. Tocá «Editar» para corregir un valor. «Excluir» deja el análisis guardado pero fuera de la evaluación (por ejemplo, muestras de un ensayo de fertilización).</p>
       <div id="datos-tabla" class="tabla-caja"></div>
       <div class="botones">
         <button type="button" class="boton boton-chico" id="btn-exportar">Bajar en Excel</button>
+        <button type="button" class="boton boton-chico" id="btn-excluir-filtrados">Excluir los que se ven</button>
+        <button type="button" class="boton boton-chico" id="btn-incluir-filtrados">Volver a incluir los que se ven</button>
         <button type="button" class="boton boton-chico" id="btn-borrar-filtrados">Borrar los que se ven</button>
       </div>
     </details>

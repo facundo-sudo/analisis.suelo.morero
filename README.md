@@ -35,7 +35,7 @@ Importar este repositorio en Vercel y aceptar. No hay que configurar nada: es un
    - **Por nutriente**: promedio por campo (o por lote, si se eligió un campo) y, con muchos campos, la evolución por campaña.
    - **Comparar**: elegir dos o más campañas, campos o ensayos y ver las diferencias en tabla, texto y gráfico.
    - **Descargar PDF**: informe con el logo, la selección, la evaluación, el gráfico y las tablas.
-4. **Análisis cargados**: lista para corregir, borrar o bajar en Excel.
+4. **Análisis cargados**: lista para corregir, borrar o bajar en Excel. **Excluir** deja un análisis guardado, con su motivo (por ejemplo, «Ensayo de fertilización»), pero fuera de todos los promedios, gráficos, conclusiones y PDF; también se puede excluir de una vez todo lo que muestra la búsqueda y volver a incluirlo. La casilla «Incluir los análisis excluidos» de la búsqueda los vuelve a sumar para consultarlos.
 
 ## Guardado y copias
 

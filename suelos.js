@@ -173,9 +173,12 @@
   // ---------- Filtros ----------
   var estado = { vista: 'panel', campo: '', ensSel: null, compPor: 'campania' };
 
-  function filtrados() {
+  // conExcluidos: true para listar también los análisis excluidos de la evaluación (lista de datos).
+  function filtrados(conExcluidos) {
+    var verExcl = conExcluidos || $('f-excluidos').checked;
     var t = norm($('f-texto').value), c = $('f-campo').value, ca = $('f-campania').value, an = $('f-anio').value, am = $('f-ambiente').value;
     return datos.filter(function (r) {
+      if (r.excluido && !verExcl) return false;
       if (am && (am === '__sin' ? ambienteDe(r) !== '' : ambienteDe(r) !== am)) return false;
       if (c && r.campo !== c) return false;
       if (ca && r.campania !== ca) return false;
@@ -1809,7 +1812,11 @@
       ? 'Hay <strong>' + datos.length + '</strong> análisis cargados de <strong>' + unico(datos.map(function (r) { return r.campo; })).length + '</strong> campos.'
       : 'Todavía no hay análisis cargados. Empezá importando un Excel o agregando uno a mano.';
     var nfR = nutPorId(nutFiltro());
-    $('f-resumen').textContent = datos.length ? 'Coinciden ' + lista.length + ' de ' + datos.length + ' análisis' + (nfR ? ' · con datos de ' + nfR.nombre.toLowerCase() + ': ' + lista.filter(function (x) { return x.v[nfR.id] != null; }).length : '') + '.' : '';
+    var nExcl = datos.filter(function (x) { return x.excluido; }).length;
+    $('caja-excluidos').hidden = !nExcl;
+    $('txt-excluidos').textContent = 'Incluir los ' + nExcl + ' análisis excluidos (ensayos u otros)';
+    $('f-resumen').textContent = datos.length ? 'Coinciden ' + lista.length + ' de ' + datos.length + ' análisis' + (nfR ? ' · con datos de ' + nfR.nombre.toLowerCase() + ': ' + lista.filter(function (x) { return x.v[nfR.id] != null; }).length : '') +
+      (nExcl && !$('f-excluidos').checked ? ' · ' + nExcl + ' excluidos de la evaluación (no cuentan)' : '') + '.' : '';
     document.querySelectorAll('.pestana').forEach(function (b) { b.setAttribute('aria-selected', b.dataset.vista === estado.vista ? 'true' : 'false'); });
 
     var r = armarVista();
@@ -1832,7 +1839,7 @@
     var nutsU = nutsConDatos(lista);
     $('umbrales-tabla').innerHTML = tablaHTML(tablaUmbrales(nutsU.length ? nutsU : nutrientes)).replace(/^<p class="subtitulo">[^<]*<\/p>/, '');
     $('btn-pdf').disabled = !lista.length;
-    tablaDatos(lista);
+    tablaDatos(filtrados(true));
   }
 
   function tablaDatos(lista) {
@@ -1843,13 +1850,27 @@
     var h = '<table class="tabla"><thead><tr><th>Campo</th><th>Lote</th><th>Campaña</th><th>Fecha</th><th>Ensayo</th>' +
       nuts.map(function (n) { return '<th class="n">' + esc(etiquetaNut(n)) + '</th>'; }).join('') + '<th></th></tr></thead><tbody>';
     orden.slice(0, MAX).forEach(function (r) {
-      h += '<tr><td>' + esc(r.campo) + '</td><td>' + esc(r.lote) + '</td><td>' + esc(r.campania) + '</td><td>' + esc(fechaTxt(r.fecha)) + '</td><td>' + esc(r.ensayo) + '</td>' +
+      h += '<tr' + (r.excluido ? ' class="excluido" title="Excluido: ' + esc(r.motivo || '') + '"' : '') + '><td>' + esc(r.campo) + (r.excluido ? '<br><small class="marca-excl">Excluido' + (r.motivo ? ': ' + esc(r.motivo) : '') + '</small>' : '') + '</td><td>' + esc(r.lote) + '</td><td>' + esc(r.campania) + '</td><td>' + esc(fechaTxt(r.fecha)) + '</td><td>' + esc(r.ensayo) + '</td>' +
         nuts.map(function (n) { var c = celdaValor(n, r.v[n.id]); return '<td class="n' + (c.k ? ' c-' + c.k : '') + '">' + (r.v[n.id] != null ? esc(c.t) : '') + '</td>'; }).join('') +
-        '<td class="acc"><button type="button" class="boton-texto" data-editar="' + r.id + '">Editar</button> <button type="button" class="boton-texto" data-borrar="' + r.id + '">Borrar</button></td></tr>';
+        '<td class="acc"><button type="button" class="boton-texto" data-editar="' + r.id + '">Editar</button> ' +
+        (r.excluido ? '<button type="button" class="boton-texto" data-incluir="' + r.id + '">Volver a incluir</button> ' : '<button type="button" class="boton-texto" data-excluir="' + r.id + '">Excluir</button> ') +
+        '<button type="button" class="boton-texto" data-borrar="' + r.id + '">Borrar</button></td></tr>';
     });
     h += '</tbody></table>';
     if (orden.length > MAX) h += '<p class="ayuda">Se muestran los primeros ' + MAX + '. Usá la búsqueda para ver los demás.</p>';
     $('datos-tabla').innerHTML = h;
+  }
+
+  // ---------- Excluir análisis de la evaluación (ensayos, muestras dudosas) ----------
+  function excluir(lista) {
+    var ej = lista[0];
+    var motivo = window.prompt('Vas a excluir ' + lista.length + (lista.length === 1 ? ' análisis' : ' análisis') + ' de la evaluación' +
+      (lista.length === 1 ? ' (' + ej.campo + ' · ' + (ej.lote || '') + ' · ' + ej.campania + ')' : '') +
+      '.\nQuedan guardados pero no cuentan en promedios, gráficos ni conclusiones.\n\nMotivo (por ejemplo: «Ensayo de fertilización»):', 'Ensayo de fertilización');
+    if (motivo === null) return;
+    lista.forEach(function (x) { x.excluido = true; x.motivo = motivo.trim(); });
+    guardarDatos(); refrescar();
+    toast(lista.length + ' análisis excluidos de la evaluación.');
   }
 
   // ---------- Carga a mano ----------
@@ -2069,9 +2090,9 @@
   // ---------- Excel de salida ----------
   function bajarExcel(lista, nombre) {
     var nuts = lista.length ? nutsConDatos(lista) : nutrientes;
-    var head = ['Campo', 'Lote', 'Campaña', 'Fecha', 'Ensayo', 'Profundidad'].concat(nuts.map(etiquetaNut)).concat(['Textura', 'Observaciones']);
+    var head = ['Campo', 'Lote', 'Campaña', 'Fecha', 'Ensayo', 'Profundidad'].concat(nuts.map(etiquetaNut)).concat(['Textura', 'Observaciones', 'Excluido de la evaluación']);
     var filas = [head].concat(lista.map(function (r) {
-      return [r.campo, r.lote, r.campania, fechaTxt(r.fecha), r.ensayo, r.prof].concat(nuts.map(function (n) { return r.v[n.id] != null ? r.v[n.id] : ''; })).concat([r.textura || '', r.obs || '']);
+      return [r.campo, r.lote, r.campania, fechaTxt(r.fecha), r.ensayo, r.prof].concat(nuts.map(function (n) { return r.v[n.id] != null ? r.v[n.id] : ''; })).concat([r.textura || '', r.obs || '', r.excluido ? 'Sí' + (r.motivo ? ': ' + r.motivo : '') : '']);
     }));
     var libro = XLSX.utils.book_new();
     var hoja = XLSX.utils.aoa_to_sheet(filas);
@@ -2145,6 +2166,8 @@
     if ($('f-ambiente').value) p.push('Ambiente: ' + ($('f-ambiente').value === '__sin' ? SIN_AMB.toLowerCase() : $('f-ambiente').value));
     if ($('f-nutriente').value) p.push('Nutriente: ' + nutPorId($('f-nutriente').value).nombre);
     if ($('f-texto').value.trim()) p.push('Búsqueda: «' + $('f-texto').value.trim() + '»');
+    var nEx = datos.filter(function (x) { return x.excluido; }).length;
+    if (nEx) p.push($('f-excluidos').checked ? 'Incluye ' + nEx + ' análisis marcados como excluidos' : nEx + ' análisis excluidos de la evaluación (ensayos u otros)');
     return p.length ? p.join(' · ') : 'Todos los análisis cargados';
   }
 
@@ -2325,9 +2348,21 @@
     $('btn-umbrales').addEventListener('click', function () { var d = $('umbrales'); d.open = true; d.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
     try { $('pdf-umbrales').checked = localStorage.getItem('suelos.pdfUmbrales') !== 'no'; } catch (e) { /* nada */ }
     $('pdf-umbrales').addEventListener('change', function (e) { try { localStorage.setItem('suelos.pdfUmbrales', e.target.checked ? 'si' : 'no'); } catch (er) { /* nada */ } });
-    $('btn-exportar').addEventListener('click', function () { var l = filtrados(); if (!l.length) { toast('No hay análisis para bajar.'); return; } bajarExcel(l, 'Analisis de suelo MORERO ' + hoyISO() + '.xlsx'); });
+    $('btn-exportar').addEventListener('click', function () { var l = filtrados(true); if (!l.length) { toast('No hay análisis para bajar.'); return; } bajarExcel(l, 'Analisis de suelo MORERO ' + hoyISO() + '.xlsx'); });
+    $('btn-excluir-filtrados').addEventListener('click', function () {
+      var l = filtrados(true).filter(function (x) { return !x.excluido; });
+      if (!l.length) { toast('No hay análisis para excluir en la lista.'); return; }
+      excluir(l);
+    });
+    $('btn-incluir-filtrados').addEventListener('click', function () {
+      var l = filtrados(true).filter(function (x) { return x.excluido; });
+      if (!l.length) { toast('No hay análisis excluidos en la lista.'); return; }
+      l.forEach(function (x) { x.excluido = false; delete x.motivo; });
+      guardarDatos(); refrescar(); toast(l.length + ' análisis vuelven a contar en la evaluación.');
+    });
+    $('f-excluidos').addEventListener('change', refrescar);
     $('btn-borrar-filtrados').addEventListener('click', function () {
-      var l = filtrados();
+      var l = filtrados(true);
       if (!l.length) return;
       if (!confirm('¿Borrar los ' + l.length + ' análisis que se ven en la lista? No se puede deshacer (salvo con una copia).')) return;
       var ids = {}; l.forEach(function (r) { ids[r.id] = 1; });
@@ -2409,10 +2444,12 @@
     });
 
     $('datos-tabla').addEventListener('click', function (e) {
-      var id = e.target.dataset.editar || e.target.dataset.borrar;
+      var id = e.target.dataset.editar || e.target.dataset.borrar || e.target.dataset.excluir || e.target.dataset.incluir;
       if (!id) return;
       var r = datos.filter(function (x) { return x.id === id; })[0];
       if (!r) return;
+      if (e.target.dataset.excluir) { excluir([r]); return; }
+      if (e.target.dataset.incluir) { r.excluido = false; delete r.motivo; guardarDatos(); refrescar(); toast('El análisis vuelve a contar en la evaluación.'); return; }
       if (e.target.dataset.editar) abrirAnalisis(r);
       else if (confirm('¿Borrar el análisis de ' + r.campo + (r.lote ? ' – ' + r.lote : '') + ' (' + r.campania + ')?')) {
         datos = datos.filter(function (x) { return x.id !== id; }); guardarDatos(); refrescar();

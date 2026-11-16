@@ -340,3 +340,6 @@ td.c-alto { background: var(--alto-fondo); }
   #umbrales-tabla td:nth-child(2), #umbrales-tabla td:last-child { font-size: .82rem; color: var(--gris); }
   #umbrales-tabla td:last-child::before { content: 'Fuente: '; }
 }
+.tabla tr.excluido td { color: #9a9aa0; background: #f4f4f5; }
+.marca-excl { color: var(--bordo); font-weight: 700; }
+.botones .check { margin: 0; align-self: center; }
