@@ -204,7 +204,7 @@
     llenarSelect($('f-anio'), unico(datos.map(anioDe)).sort().reverse(), 'Todos los años');
     var ambsDatos = unico(datos.map(ambienteDe));
     llenarSelect($('f-ambiente'), ORDEN_AMB.filter(function (a) { return ambsDatos.indexOf(a) >= 0; }).map(function (a) { return { v: a, t: a }; })
-      .concat(datos.some(function (x) { return !ambienteDe(x); }) ? [{ v: '__sin', t: SIN_AMB }] : []), 'Todos los ambientes');
+      .concat(datos.some(function (x) { return !ambienteDe(x) && (!x.excluido || $('f-excluidos').checked); }) ? [{ v: '__sin', t: SIN_AMB }] : []), 'Todos los ambientes');
     var conDatos = nutsConDatos(datos);
     llenarSelect($('f-nutriente'), (conDatos.length ? conDatos : nutrientes).map(function (n) { return { v: n.id, t: n.nombre + (n.corto !== n.nombre ? ' (' + n.corto + ')' : '') }; }), 'Todos los nutrientes');
     $('lista-campos').innerHTML = unico(datos.map(function (r) { return r.campo; })).sort(ordenarTexto).map(function (x) { return '<option value="' + esc(x) + '">'; }).join('');
@@ -588,13 +588,39 @@
     if (/ baja( p| prod| productividad)? /.test(t)) return 'Loma';
     // Campos cuyos lotes sin ambiente se toman como un ambiente fijo (criterio MORERO).
     // Sin norm(): norm() borra lo que está entre paréntesis, como «(DUHAU)».
-    var c = ' ' + String(r.campo || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ') + ' ';
+    var c = normCampo(r.campo);
     for (var i = 0; i < AMB_POR_CAMPO.length; i++) if (AMB_POR_CAMPO[i].re.test(c)) return AMB_POR_CAMPO[i].amb;
     return '';
   }
+  // Nombre de campo normalizado CON lo que está entre paréntesis (norm() lo borra): « bilbao raul la escondida ».
+  function normCampo(t) { return ' ' + String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim() + ' '; }
+  // Ambiente de los lotes que no lo dicen en el nombre (muestras únicas o por rangos), según el campo (criterio MORERO).
   var AMB_POR_CAMPO = [
-    { re: / duhau /, amb: 'Bajo' }   // La Sofía (Duhau): alta productividad
+    { re: / duhau /, amb: 'Bajo' },                     // La Sofía (Duhau): alta productividad
+    { re: /^ la sofia $/, amb: 'Bajo' },
+    { re: /^ bilbao raul la escondida $/, amb: 'Bajo' },
+    { re: /^ itati $/, amb: 'Bajo' },
+    { re: /^ zemma $/, amb: 'Bajo' },
+    { re: /^ la guardia $/, amb: 'Bajo' },
+    { re: /^ san enrique l 18 22 $/, amb: 'Loma' }      // baja productividad
   ];
+  // Análisis que MORERO descarta de la evaluación (ensayos o muestras no representativas).
+  // Se marcan como excluidos una sola vez; después se pueden volver a incluir desde la lista.
+  var DESCARTES = [
+    { re: /^ las marias lote 6 7 $/, prueba: function (x) { return x.campania === '2025/26' || (x.campania === '2020/21' && x.v.p > 400); }, motivo: 'Ensayo de fertilización' },
+    { re: /^ neli guerra $/, prueba: function (x) { return x.campania === '2024/25' && / unico /.test(' ' + norm(x.lote) + ' '); }, motivo: 'Descartado (criterio MORERO)' },
+    { re: /^ (el destino|rimoldi|santin jorge) $/, prueba: function (x) { return x.campania === '2022/23' && / unica /.test(' ' + norm(x.lote) + ' '); }, motivo: 'Descartado (criterio MORERO)' }
+  ];
+  function aplicarDescartes(lista) {
+    var cambio = false;
+    lista.forEach(function (x) {
+      if (x.reglaRevisada) return;
+      x.reglaRevisada = true; cambio = true;
+      var c = normCampo(x.campo);
+      for (var i = 0; i < DESCARTES.length; i++) if (DESCARTES[i].re.test(c) && DESCARTES[i].prueba(x)) { x.excluido = true; x.motivo = DESCARTES[i].motivo; break; }
+    });
+    return cambio;
+  }
   var ORDEN_AMB = ['Loma', 'Media loma', 'Bajo', 'Alta productividad', 'Media productividad', 'Baja productividad'];
   var FAMILIAS_AMB = [['Loma', 'Media loma', 'Bajo'], ['Alta productividad', 'Media productividad', 'Baja productividad']];
   // Devuelve la familia de ambientes con datos suficientes (primero relieve, después productividad).
@@ -2083,6 +2109,7 @@
       if (existentes[fi]) { repetidos++; return; }
       existentes[fi] = 1; nuevos.push(r);
     });
+    aplicarDescartes(nuevos);
     datos = datos.concat(nuevos);
     guardarDatos();
     $('dlg-importar').close();
@@ -2484,6 +2511,7 @@
     gs.addEventListener('mouseout', function (e) { if (e.target.tagName === 'CANVAS') e.target.nextElementSibling.hidden = true; });
     var t; window.addEventListener('resize', function () { clearTimeout(t); t = setTimeout(pintarGraficos, 150); });
 
+    if (aplicarDescartes(datos)) guardarDatos();
     refrescar();
   }
 

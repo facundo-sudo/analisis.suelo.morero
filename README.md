@@ -35,6 +35,7 @@ Importar este repositorio en Vercel y aceptar. No hay que configurar nada: es un
    - **Por nutriente**: promedio por campo (o por lote, si se eligió un campo) y, con muchos campos, la evolución por campaña.
    - **Comparar**: elegir dos o más campañas, campos o ensayos y ver las diferencias en tabla, texto y gráfico.
    - **Descargar PDF**: informe con el logo, la selección, la evaluación, el gráfico y las tablas.
+   - **Criterio MORERO cargado en la página** (en `suelos.js`, listas `AMB_POR_CAMPO` y `DESCARTES`): los lotes sin ambiente de La Sofía, La Sofía (Duhau), Bilbao Raúl (La Escondida), Itatí, Zemma y La Guardia se toman como bajo, y los de San Enrique L.18-22 como loma. Se excluyen solos 23 análisis: los ensayos de fertilización de Las Marías Lote 6-7 (2025/26 y los dos de 2020/21 con más de 400 ppm de fósforo) y las muestras únicas o por rangos de Neli Guerra (2024/25), El Destino, Rimoldi y Santín Jorge (2022/23). Se pueden volver a incluir desde la lista.
 4. **Análisis cargados**: lista para corregir, borrar o bajar en Excel. **Excluir** deja un análisis guardado, con su motivo (por ejemplo, «Ensayo de fertilización»), pero fuera de todos los promedios, gráficos, conclusiones y PDF; también se puede excluir de una vez todo lo que muestra la búsqueda y volver a incluirlo. La casilla «Incluir los análisis excluidos» de la búsqueda los vuelve a sumar para consultarlos.
 
 ## Guardado y copias
