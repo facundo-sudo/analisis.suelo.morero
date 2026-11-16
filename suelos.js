@@ -578,7 +578,7 @@
   // Ambiente a partir del nombre del lote (LOMA, M.LOMA, BAJO, ALTA P, etc.)
   function ambienteDe(r) {
     var t = ' ' + norm(r.lote) + ' ';
-    if (/ (m loma|media loma|medialoma|mloma|ml) /.test(t)) return 'Media loma';
+    if (/ (m loma|m lomas|media loma|media lomas|media l|medialoma|mloma|ml) /.test(t)) return 'Media loma';
     if (/ (bajo|bajos|bajo alto|tendido) /.test(t)) return 'Bajo';
     if (/ (loma|lomas) /.test(t)) return 'Loma';
     // Zonas de productividad, equivalentes al relieve (criterio MORERO):
