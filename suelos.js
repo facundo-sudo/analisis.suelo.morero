@@ -581,11 +581,20 @@
     if (/ (m loma|media loma|medialoma|mloma|ml) /.test(t)) return 'Media loma';
     if (/ (bajo|bajos|bajo alto|tendido) /.test(t)) return 'Bajo';
     if (/ (loma|lomas) /.test(t)) return 'Loma';
-    if (/ alta( p| prod| productividad)? /.test(t)) return 'Alta productividad';
-    if (/ media( p| prod| productividad) /.test(t)) return 'Media productividad';
-    if (/ baja( p| prod| productividad)? /.test(t)) return 'Baja productividad';
+    // Zonas de productividad, equivalentes al relieve (criterio MORERO):
+    // alta productividad = bajo, media = media loma, baja = loma.
+    if (/ alta( p| prod| productividad)? /.test(t)) return 'Bajo';
+    if (/ media( p| prod| productividad) /.test(t)) return 'Media loma';
+    if (/ baja( p| prod| productividad)? /.test(t)) return 'Loma';
+    // Campos cuyos lotes sin ambiente se toman como un ambiente fijo (criterio MORERO).
+    // Sin norm(): norm() borra lo que está entre paréntesis, como «(DUHAU)».
+    var c = ' ' + String(r.campo || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ') + ' ';
+    for (var i = 0; i < AMB_POR_CAMPO.length; i++) if (AMB_POR_CAMPO[i].re.test(c)) return AMB_POR_CAMPO[i].amb;
     return '';
   }
+  var AMB_POR_CAMPO = [
+    { re: / duhau /, amb: 'Bajo' }   // La Sofía (Duhau): alta productividad
+  ];
   var ORDEN_AMB = ['Loma', 'Media loma', 'Bajo', 'Alta productividad', 'Media productividad', 'Baja productividad'];
   var FAMILIAS_AMB = [['Loma', 'Media loma', 'Bajo'], ['Alta productividad', 'Media productividad', 'Baja productividad']];
   // Devuelve la familia de ambientes con datos suficientes (primero relieve, después productividad).
