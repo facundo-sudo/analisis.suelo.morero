@@ -319,3 +319,10 @@ td.c-alto { background: var(--alto-fondo); }
 .eval-base { margin: 0 0 12px; padding: 8px 12px; background: var(--gris-claro); border-radius: 8px; color: var(--gris); font-size: .92rem; }
 .eval-base:empty { display: none; }
 .eval-base strong { color: var(--texto); }
+.mensajes:empty { display: none; }
+.mensajes { margin-bottom: 14px; }
+.msgs { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px; margin-top: 6px; }
+.msg-card { border: 1px solid var(--borde); border-left: 4px solid var(--bordo); border-radius: var(--radio); padding: 10px 12px; display: grid; gap: 6px; align-content: start; background: var(--blanco); }
+.msg-tit { margin: 0; font-weight: 700; color: var(--texto); }
+.msg-txt { margin: 0; font-size: .9rem; line-height: 1.45; color: var(--texto); }
+.msg-card .botones { margin-top: 2px; }
