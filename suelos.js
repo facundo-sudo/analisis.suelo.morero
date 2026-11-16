@@ -464,7 +464,7 @@
     atencion: { t: 'Atención', icono: '▲', orden: 1 },
     info: { t: 'Dato', icono: 'i', orden: 2 },
     bien: { t: 'Fortaleza', icono: '✓', orden: 3 },
-    oportunidad: { t: 'Oportunidad', icono: '$', orden: 0 },
+    oportunidad: { t: 'Oportunidad', icono: '★', orden: 0 },
     accion: { t: 'Acción', icono: '›', orden: 1 },
     riesgo: { t: 'Riesgo', icono: '!', orden: 2 },
     objecion: { t: 'Objeciones', icono: '?', orden: 2 }
@@ -870,20 +870,25 @@
       'Revisamos el análisis de suelo de ' + o.campo + ' (campaña ' + o.campania + ') y encontramos:'];
     (o.hallazgos.length ? o.hallazgos : ['Niveles en general adecuados']).forEach(function (h) { lineas.push('• ' + h); });
     lineas.push('');
-    var prop = o.productos.map(function (pr) {
-      return pr.unidad === 'ha' ? pr.corto : pr.corto + ' ' + fmt(o.kg[pr.id], 0) + ' kg/ha';
-    });
-    if (prop.length) {
-      lineas.push('Para tus ' + fmt(o.ha, 0) + ' ha te proponemos: ' + prop.join(', ') + '.');
-      if (prop.length >= 2) lineas.push('Lo armamos como mezcla a medida en nuestra planta, para aplicar todo en una sola pasada.');
-    } else lineas.push('Para mantener estos niveles te proponemos la reposición de lo que extrae el cultivo.');
-    lineas.push('', '¿Te paso la cotización o coordinamos una visita para verlo juntos?');
+    var prods = o.productos.map(function (pr) { return pr.corto; });
+    if (o.hallazgos.length >= 2) lineas.push('Te proponemos una mezcla a medida, armada en nuestra planta para tu análisis, que corrige todo en una sola pasada.');
+    else if (o.hallazgos.length) lineas.push('Tiene solución simple y te la podemos armar a medida de tu análisis.');
+    else lineas.push('Para mantener estos niveles conviene reponer lo que se lleva cada cosecha.');
+    lineas.push('', '¿Coordinamos una visita para ver tu análisis juntos?');
     return lineas.join('\n');
   }
 
   var ultimasNecesidades = {};
+  var ETIQUETA_SEG = {
+    recuperacion: { dolor: 'Varios nutrientes en nivel bajo a la vez: el campo perdió fertilidad.', resaltar: 'Plan integral por etapas, con seguimiento: «recuperar el campo».' },
+    fosforo: { dolor: 'Fósforo bajo: limita el rinde de todos los cultivos.', resaltar: 'El fósforo es capital del campo: construir y reponer.' },
+    enmiendas: { dolor: 'Acidez o sodio: el suelo no aprovecha lo que se le aplica.', resaltar: 'Corregir el suelo primero hace rendir el resto de los insumos.' },
+    azufre: { dolor: 'Azufre y zinc bajos: problemas silenciosos y fáciles de corregir.', resaltar: 'Solución simple y de bajo costo dentro de la misma mezcla.' },
+    mantenimiento: { dolor: 'Niveles buenos: el riesgo es dejar de reponer.', resaltar: 'Cuidar lo logrado: reposición y re-muestreo.' }
+  };
+
   function vistaComercial(lista) {
-    var r = { titulo: 'Panel comercial: estrategias de venta', puntos: [], tablas: [], graficos: [], kpis: [], conclusiones: [] };
+    var r = { titulo: 'Panel comercial: cómo vender soluciones nutricionales', puntos: [], tablas: [], graficos: [], kpis: [], conclusiones: [] };
     if (!lista.length) { r.puntos.push('No hay análisis que coincidan con la búsqueda. Cargá datos o cambiá los filtros.'); return r; }
     var C = r.conclusiones;
     function concluir(nivel, titulo, texto, accion) { C.push({ nivel: nivel, titulo: titulo, texto: texto, accion: accion || '' }); }
@@ -892,63 +897,68 @@
     ultimosMensajes = {};
     ultimasNecesidades = {};
     todos.forEach(function (o) { ultimasNecesidades[o.campo] = o; });
-    var nec = comCfg.segmento ? todos.filter(function (o) { return o.seg === comCfg.segmento; }) : todos;
-
-    // Opciones
     r.opciones = '<label>Segmento <select data-op="cseg"><option value="">Todos los segmentos</option>' + SEGMENTOS.map(function (s) {
       var n = todos.filter(function (o) { return o.seg === s.id; }).length;
       return '<option value="' + s.id + '"' + (comCfg.segmento === s.id ? ' selected' : '') + '>' + esc(s.t) + ' (' + n + ')</option>';
     }).join('') + '</select></label>';
+    var nec = comCfg.segmento ? todos.filter(function (o) { return o.seg === comCfg.segmento; }) : todos;
     if (!nec.length) { r.puntos.push('Ningún campo en este segmento.'); return r; }
+    var camposSel = {}; nec.forEach(function (o) { camposSel[o.campo] = 1; });
+    var L = lista.filter(function (x) { return camposSel[x.campo]; });
 
-    var prod = comCfg.producto;
-    function valor(o) { return prod ? o.monto[prod] : o.total; }
-    var total = nec.reduce(function (a, o) { return a + valor(o); }, 0);
-    var haTot = nec.reduce(function (a, o) { return a + o.ha; }, 0);
-    var porProd = PRODUCTOS.map(function (pr) {
-      var m = nec.reduce(function (a, o) { return a + o.monto[pr.id]; }, 0);
-      var vol = nec.reduce(function (a, o) { return a + (pr.unidad === 'ha' ? (o.kg[pr.id] ? o.ha : 0) : o.kg[pr.id] * o.ha / 1000); }, 0);
-      return { pr: pr, m: m, vol: vol, campos: nec.filter(function (o) { return o.kg[pr.id] > 0; }).length };
-    }).filter(function (x) { return x.m > 0; }).sort(function (a, b) { return b.m - a.m; });
-    var orden = nec.slice().sort(function (a, b) { return valor(b) - valor(a); });
+    // ----- Problemas nutricionales (el "dolor" del productor) -----
+    var problemas = nutsConDatos(L).filter(function (n) { return n.tipo !== 'info' && n.id !== 'ct'; }).map(function (n) {
+      var con = L.filter(function (x) { return x.v[n.id] != null; });
+      var mal = con.filter(function (x) { var c = clasificar(n, x.v[n.id]); return c && c.k === 'bajo'; });
+      return { n: n, con: con.length, mal: mal.length, p: con.length ? mal.length * 100 / con.length : 0 };
+    }).filter(function (o) { return o.con >= 5; }).sort(function (a, b) { return b.p - a.p; });
+    var grandes = problemas.filter(function (o) { return o.p >= 25; });
+
+    // ----- Combinaciones de deficiencias (para desarrollar mezclas tipo) -----
+    var CLAVE = ['p', 'n', 's', 'zn', 'b'].filter(function (id) { return nutPorId(id); });
+    var combos = {}, base = 0;
+    L.forEach(function (x) {
+      var medidos = CLAVE.filter(function (id) { return x.v[id] != null; });
+      if (medidos.length < 3) return;
+      base++;
+      var def = medidos.filter(function (id) { var c = clasificar(nutPorId(id), x.v[id]); return c && c.k === 'bajo'; });
+      if (def.length < 2) return;
+      var k = def.map(function (id) { return nutPorId(id).corto; }).join(' + ');
+      combos[k] = (combos[k] || 0) + 1;
+    });
+    var topCombos = Object.keys(combos).map(function (k) { return { k: k, n: combos[k], p: combos[k] * 100 / base }; }).sort(function (a, b) { return b.n - a.n; }).slice(0, 8);
+    var dos = nec.filter(function (o) { return o.hallazgos.length >= 2; });
 
     // ----- Indicadores -----
-    r.kpis.push({ t: 'Potencial de venta estimado', v: plataCorta(total), sub: (prod ? PRODUCTOS.filter(function (p) { return p.id === prod; })[0].corto + ' · ' : '') + fmt(haTot, 0) + ' ha supuestas', k: 'bien' });
-    r.kpis.push({ t: 'Campos con oportunidad', v: String(nec.filter(function (o) { return valor(o) > 0; }).length), sub: 'de ' + nec.length + ' campos analizados' });
-    r.kpis.push({ t: 'Ticket promedio por campo', v: plataCorta(total / nec.length), sub: plata(haTot ? total / haTot : 0) + ' por ha' });
-    if (porProd.length) r.kpis.push({ t: 'Producto con más potencial', v: porProd[0].pr.corto, sub: pct(porProd[0].m, porProd.reduce(function (a, x) { return a + x.m; }, 0)) + '% del potencial · ' + porProd[0].campos + ' campos' });
-    var n20 = Math.max(1, Math.round(orden.length * 0.2)), top20 = orden.slice(0, n20).reduce(function (a, o) { return a + valor(o); }, 0);
-    r.kpis.push({ t: 'Concentración (Pareto)', v: pct(top20, total) + '%', sub: 'del potencial en el 20% de los campos (' + n20 + ')' });
+    if (problemas.length) r.kpis.push({ t: 'Problema n.º 1 de la zona', v: problemas[0].n.corto, sub: Math.round(problemas[0].p) + '% de ' + problemas[0].con + ' muestras con dato', k: 'bajo' });
+    if (problemas.length > 1) r.kpis.push({ t: 'Problema n.º 2', v: problemas[1].n.corto, sub: Math.round(problemas[1].p) + '% de ' + problemas[1].con + ' muestras con dato', k: problemas[1].p >= 50 ? 'bajo' : 'medio' });
+    r.kpis.push({ t: 'Campos con 2 problemas o más', v: pct(dos.length, nec.length) + '%', sub: dos.length + ' de ' + nec.length + ' campos (última campaña)' });
+    if (topCombos.length) r.kpis.push({ t: 'Combinación más frecuente', v: topCombos[0].k, sub: Math.round(topCombos[0].p) + '% de ' + base + ' muestras con 3 nutrientes o más medidos' });
     var maxAnio = Math.max.apply(null, lista.map(function (x) { return Number(String(x.campania).slice(0, 4)) || 0; }));
     var viejos = nec.filter(function (o) { return (Number(String(o.campania).slice(0, 4)) || 0) <= maxAnio - 2; });
     r.kpis.push({ t: 'Para re-muestrear', v: String(viejos.length), sub: 'campos sin análisis en las últimas 2 campañas', k: viejos.length ? 'medio' : 'bien' });
+    var meses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'], porMes = meses.map(function () { return 0; });
+    L.forEach(function (x) { if (x.fecha) porMes[Number(String(x.fecha).slice(5, 7)) - 1]++; });
+    var totMes = porMes.reduce(function (a, b) { return a + b; }, 0);
+    var top2 = porMes.map(function (n, i) { return { i: i, n: n }; }).sort(function (a, b) { return b.n - a.n; }).slice(0, 2);
+    if (totMes) r.kpis.push({ t: 'Meses clave de muestreo', v: meses[top2[0].i] + ' y ' + meses[top2[1].i], sub: pct(top2[0].n + top2[1].n, totMes) + '% de los muestreos' });
 
-    // ----- Conclusiones del experto en marketing -----
-    if (porProd.length) {
-      concluir('oportunidad', 'Potencial estimado de ' + plataCorta(total) + ' en ' + nec.length + ' campos',
-        'Por producto: ' + porProd.map(function (x) { return x.pr.corto + ' ' + plataCorta(x.m) + (x.pr.unidad === 't' ? ' (' + fmt(x.vol, 0) + ' t)' : ' (' + fmt(x.vol, 0) + ' ha)'); }).join(' · ') + '.',
-        'El número sale de los propios análisis: es el mejor argumento de venta, porque el cliente ve su dato y la solución.');
-    }
-    var multi = nec.filter(function (o) { return o.productos.length >= 3; });
-    if (multi.length) concluir('oportunidad', 'Mezcla a medida: ' + pct(multi.length, nec.length) + '% de los campos necesitan 3 productos o más',
-      multi.length + ' campos combinan necesidades (por ejemplo, P + azufre + zinc).', 'Estrategia: vender una mezcla física armada en planta para cada campo, en una sola pasada. Diferencia a MORERO frente a quien vende productos sueltos y sube el ticket por cliente.');
-    var top5 = orden.slice(0, 5).filter(function (o) { return valor(o) > 0; });
-    if (top5.length) concluir('accion', 'Visitar primero a los ' + top5.length + ' campos de mayor potencial',
-      top5.map(function (o) { return esc(o.campo) + ' (' + plataCorta(valor(o)) + ')'; }).join(', ') + '. El 20% de los campos concentra el ' + pct(top20, total) + '% del potencial.',
-      'Estrategia de cuentas clave: visita personal con el análisis impreso (PDF), propuesta escrita y seguimiento a los 7 días.');
-    var nS = nutPorId('s'), nZ = nutPorId('zn');
-    var rapidos = nec.filter(function (o) { return o.kg.yeso > 0 || o.kg.zn > 0; });
-    if (rapidos.length && nS) {
-      var costoHa = (110 / 1000) * comCfg.precios.yeso + comCfg.precios.zn;
-      concluir('accion', 'Producto de entrada: azufre y zinc en ' + rapidos.length + ' campos',
-        'Corregir azufre (yeso) y zinc cuesta cerca de ' + plata(costoHa) + ' por ha: es una decisión fácil para el productor y la respuesta se ve en el cultivo.',
-        'Estrategia: usarlo para abrir clientes nuevos o que hoy compran poco; después sumar fósforo y semilla.');
-    }
-    if (viejos.length) concluir('accion', viejos.length + ' campos sin análisis recientes',
-      'Su último análisis es de la campaña ' + esc(listarCorto(unico(viejos.map(function (o) { return o.campania; })).sort(ordenarTexto), 3)) + ' o anterior: ' + esc(listarCorto(viejos.map(function (o) { return o.campo; }), 4)) + '.',
-      'Estrategia: ofrecer el muestreo de suelo sin cargo como motivo de visita. Cada análisis nuevo genera la siguiente propuesta de venta.');
-
-    // Campos que perdieron fósforo: argumento de pérdida
+    // ----- Conclusiones: cómo vender -----
+    if (grandes.length) concluir('oportunidad', 'Qué resaltar: los problemas reales de la zona, con datos propios',
+      grandes.slice(0, 5).map(function (o) { return o.n.nombre + ' ' + nombreProblema(o.n) + ' en el ' + Math.round(o.p) + '% (' + o.con + ' muestras)'; }).join(' · ') + '.',
+      'Comunicar con el dato local («en nuestra zona el ' + Math.round(grandes[0].p) + '% de los lotes tiene ' + grandes[0].n.nombre.toLowerCase() + ' ' + nombreProblema(grandes[0].n) + '»), no con promedios del país. El productor se reconoce en el dato y se pregunta si a él también le pasa.');
+    concluir('oportunidad', 'Propuesta de valor: vender soluciones, no productos',
+      'El productor no compra MAP o zinc: compra que su campo rinda. La propuesta MORERO es un servicio completo: análisis → interpretación → receta por ambiente → mezcla a medida en planta → seguimiento con re-muestreo.',
+      'Mensaje central sugerido: «Tu análisis, tu mezcla». Cada propuesta empieza mostrando el análisis del cliente y termina con la solución armada para ese análisis.');
+    if (topCombos.length) concluir('oportunidad', 'Desarrollo de producto: mezclas tipo para la zona',
+      'Combinaciones de deficiencias más frecuentes: ' + topCombos.slice(0, 4).map(function (c) { return c.k + ' (' + Math.round(c.p) + '%)'; }).join(' · ') + '.',
+      'Armar una línea de 2 o 3 mezclas estándar con nombre propio que resuelvan esas combinaciones (fáciles de comunicar y de pedir), y dejar la mezcla a medida como servicio premium para quien trae su análisis.');
+    concluir('accion', 'Embudo para captar y convencer',
+      'Atraer: contenidos con datos de la zona (el «dato del mes» en redes, radio y WhatsApp; charlas en CREA y cooperativas). Interesar: interpretación gratuita del análisis o muestreo sin cargo. Convencer: ensayo en franjas en el campo del productor, día de campo y testimonios de vecinos. Cerrar: receta y mezcla a medida, con propuesta escrita. Fidelizar: informe anual del campo (el PDF de esta página) y re-muestreo.',
+      'Medir cada etapa: cuántos análisis interpretados, cuántos ensayos, cuántas propuestas y cuántos clientes repiten.');
+    if (viejos.length) concluir('accion', viejos.length + ' campos sin análisis recientes: puerta de entrada',
+      'Último análisis en la campaña ' + esc(listarCorto(unico(viejos.map(function (o) { return o.campania; })).sort(ordenarTexto), 3)) + ' o anterior: ' + esc(listarCorto(viejos.map(function (o) { return o.campo; }), 4)) + '.',
+      'Ofrecer el re-muestreo como servicio: es la excusa para volver a visitar y el punto de partida de cada propuesta.');
     var perdidas = [];
     nec.forEach(function (o) {
       var cs = o.pc.campanias.filter(function (c) { return o.pc.todas.some(function (x) { return x.campania === c && x.v.p != null; }); });
@@ -956,81 +966,61 @@
       var a = promedio(valoresDe(o.pc.todas.filter(function (x) { return x.campania === cs[0]; }), 'p')), b = promedio(valoresDe(o.pc.todas.filter(function (x) { return x.campania === cs[cs.length - 1]; }), 'p'));
       if (a && (b - a) / a <= -0.2) perdidas.push(o.campo + ' (' + Math.round((b - a) * 100 / a) + '% desde ' + cs[0] + ')');
     });
-    if (perdidas.length) concluir('riesgo', perdidas.length + ' campos perdieron más del 20% de su fósforo',
-      esc(listarCorto(perdidas, 4)) + '.', 'Mensaje de venta: «su campo está perdiendo fertilidad: estamos sacando más de lo que reponemos». Comparar las dos campañas en el PDF (pestaña Comparar).');
-    var enm = nec.filter(function (o) { return o.seg === 'enmiendas' || o.kg.cal > 0 || o.kg.yeso >= 1000; });
-    if (enm.length) concluir('oportunidad', 'Enmiendas: ' + enm.length + ' campos con sodio o acidez',
-      esc(listarCorto(enm.map(function (o) { return o.campo; }), 4)) + '.', 'Venta de valor con asesoramiento técnico: pocos competidores la ofrecen y fideliza al cliente por varias campañas.');
-
-    // Calendario: ¿cuándo se toman las muestras?
-    var meses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'], porMes = meses.map(function () { return 0; });
-    lista.forEach(function (x) { if (x.fecha) porMes[Number(String(x.fecha).slice(5, 7)) - 1]++; });
-    var totMes = porMes.reduce(function (a, b) { return a + b; }, 0);
-    if (totMes) {
-      var top2 = porMes.map(function (n, i) { return { i: i, n: n }; }).sort(function (a, b) { return b.n - a.n; }).slice(0, 2);
-      concluir('accion', 'Calendario: el ' + pct(top2[0].n + top2[1].n, totMes) + '% de los muestreos se hace en ' + meses[top2[0].i] + ' y ' + meses[top2[1].i],
-        'Es el momento en que el productor tiene el análisis en la mano y está decidiendo la fertilización.',
-        'Estrategia: tener la propuesta lista y el stock asegurado antes de esos meses, y contactar dentro de los 15 días de cada análisis. Trigo: junio–julio; maíz: septiembre–diciembre; soja: noviembre–diciembre.');
-    }
-    var mant = nec.filter(function (o) { return o.seg === 'mantenimiento'; });
-    if (mant.length) concluir('info', mant.length + ' campos en mantenimiento', 'Tienen niveles buenos: el riesgo es que compren por precio a otro proveedor.', 'Estrategia: fidelizar con beneficios por volumen, prioridad de entrega y re-muestreo sin cargo.');
-    concluir('info', 'Supuestos de la estimación', fmt(comCfg.haDef, 0) + ' ha por campo (se puede cambiar en cada campo), reposición de ' + fmt(comCfg.reposicion, 0) + ' kg/ha de MAP, N objetivo ' + fmt(comCfg.nObj, 0) + ' kg/ha y precios de referencia editables abajo.', 'Ajustá hectáreas y precios para que el potencial se acerque a la realidad de cada cliente.');
-    var ordNiv = { oportunidad: 0, riesgo: 1, accion: 2, info: 3 };
+    if (perdidas.length) concluir('accion', 'Historias para contar: ' + perdidas.length + ' campos perdieron más del 20% de su fósforo',
+      esc(listarCorto(perdidas, 4)) + '.', 'El «antes y después» del propio campo es el argumento más fuerte: se ve en la pestaña Comparar y en el PDF. Con permiso del productor, sirve también como caso para comunicar.');
+    if (totMes) concluir('accion', 'Calendario de comunicación',
+      'El ' + pct(top2[0].n + top2[1].n, totMes) + '% de los muestreos se hace en ' + meses[top2[0].i] + ' y ' + meses[top2[1].i] + ': es cuando el productor tiene el análisis en la mano y decide.',
+      'Campañas de contenido un mes antes; interpretación y propuesta dentro de los 15 días de cada análisis; ventanas de decisión: trigo (mayo–julio), maíz (junio–diciembre), soja (octubre–diciembre).');
+    concluir('info', 'Mensaje según el segmento',
+      SEGMENTOS.filter(function (s) { return nec.some(function (o) { return o.seg === s.id; }); }).map(function (s) {
+        return s.t + ' (' + nec.filter(function (o) { return o.seg === s.id; }).length + ' campos): ' + ETIQUETA_SEG[s.id].resaltar;
+      }).join(' · '), 'Elegí un segmento arriba para ver solo esos campos y sus mensajes.');
+    concluir('objecion', 'Cómo convencer: evidencia antes que promesas',
+      'El productor desconfía de la promesa del vendedor, pero confía en su análisis, en su monitor de rendimiento y en lo que ve en el campo del vecino.',
+      'Llevar siempre el análisis del cliente, ofrecer franjas de prueba y mostrar resultados locales. Para armar la estrategia de un producto puntual (zinc, fósforo, azufre…), elegilo en «Estrategia por producto».');
+    var ordNiv = { oportunidad: 0, accion: 1, info: 2, objecion: 3 };
     C.sort(function (a, b) { return ordNiv[a.nivel] - ordNiv[b.nivel]; });
 
     // ----- Gráficos -----
-    if (porProd.length) r.graficos.push({
-      tipo: 'ranking', ancho: 'medio', titulo: 'Potencial de venta por producto (US$)', moneda: true,
-      cats: porProd.map(function (x) { return x.pr.corto; }), vals: porProd.map(function (x) { return x.m; }),
-      colores: porProd.map(function () { return '#8F131C'; }), estados: porProd.map(function (x) { return x.campos + ' campos'; }),
-      detalles: porProd.map(function (x) { return x.pr.unidad === 't' ? fmt(x.vol, 0) + ' t a ' + plata(comCfg.precios[x.pr.id]) + '/t' : fmt(x.vol, 0) + ' ha a ' + plata(comCfg.precios[x.pr.id]) + '/ha'; }),
-      leyenda: [{ c: '#8F131C', t: 'Monto estimado en US$' }]
+    if (problemas.length) r.graficos.push({
+      tipo: 'ranking', ancho: 'medio', titulo: 'Problemas nutricionales de la zona (% de muestras con dato)', sufijo: '%', max: 100,
+      cats: problemas.map(function (o) { return o.n.corto; }), vals: problemas.map(function (o) { return o.p; }),
+      colores: problemas.map(function (o) { return o.p >= 50 ? COLORES.bajo : o.p >= 25 ? COLORES.medio : COLORES.bien; }),
+      estados: problemas.map(function (o) { return o.mal + ' de ' + o.con + ' muestras'; }), detalles: problemas.map(function (o) { return o.n.nombre + ' en nivel ' + nombreProblema(o.n); }),
+      leyenda: [{ c: COLORES.bajo, t: 'Mayoría de las muestras' }, { c: COLORES.medio, t: '25% a 50%' }, { c: COLORES.bien, t: 'Menos del 25%' }]
     });
-    var segCuenta = SEGMENTOS.map(function (s) { var l = nec.filter(function (o) { return o.seg === s.id; }); return { s: s, n: l.length, m: l.reduce(function (a, o) { return a + valor(o); }, 0) }; }).filter(function (x) { return x.n; });
+    if (topCombos.length) r.graficos.push({
+      tipo: 'ranking', ancho: 'medio', titulo: 'Deficiencias que aparecen juntas (% de muestras)', sufijo: '%',
+      cats: topCombos.map(function (c) { return c.k; }), vals: topCombos.map(function (c) { return c.p; }), colores: topCombos.map(function () { return '#8F131C'; }),
+      estados: topCombos.map(function (c) { return c.n + ' muestras'; }), detalles: topCombos.map(function () { return 'Base: ' + base + ' muestras con 3 nutrientes o más medidos'; }),
+      leyenda: [{ c: '#8F131C', t: 'Idea de mezcla tipo para desarrollar' }]
+    });
+    var segCuenta = SEGMENTOS.map(function (s) { return { s: s, n: nec.filter(function (o) { return o.seg === s.id; }).length }; }).filter(function (x) { return x.n; });
     r.graficos.push({
-      tipo: 'ranking', ancho: 'medio', titulo: 'Segmentos de clientes (cantidad de campos)', sufijo: ' campos',
-      cats: segCuenta.map(function (x) { return x.s.t; }), vals: segCuenta.map(function (x) { return x.n; }),
-      colores: segCuenta.map(function (x) { return x.s.color; }), estados: segCuenta.map(function (x) { return plataCorta(x.m) + ' de potencial'; }),
-      detalles: segCuenta.map(function (x) { return x.s.accion; }),
+      tipo: 'ranking', ancho: 'medio', titulo: 'Segmentos de clientes (campos)', sufijo: ' campos',
+      cats: segCuenta.map(function (x) { return x.s.t; }), vals: segCuenta.map(function (x) { return x.n; }), colores: segCuenta.map(function (x) { return x.s.color; }),
+      estados: segCuenta.map(function (x) { return ETIQUETA_SEG[x.s.id].dolor; }), detalles: segCuenta.map(function (x) { return 'Resaltar: ' + ETIQUETA_SEG[x.s.id].resaltar; }),
       leyenda: segCuenta.map(function (x) { return { c: x.s.color, t: x.s.t }; })
     });
-    var top15 = orden.slice(0, 15).filter(function (o) { return valor(o) > 0; });
-    if (top15.length) r.graficos.push({
-      tipo: 'ranking', ancho: 'completo', titulo: 'Los ' + top15.length + ' campos con más potencial (US$' + (prod ? ', ' + PRODUCTOS.filter(function (p) { return p.id === prod; })[0].corto : '') + ')', moneda: true,
-      cats: top15.map(function (o) { return o.campo; }), vals: top15.map(valor),
-      colores: top15.map(function (o) { return segPorId(o.seg).color; }), estados: top15.map(function (o) { return segPorId(o.seg).t; }),
-      detalles: top15.map(function (o) { return fmt(o.ha, 0) + ' ha · campaña ' + o.campania + ' · ' + o.productos.map(function (p) { return p.corto; }).join(' + '); }),
-      leyenda: unico(top15.map(function (o) { return o.seg; })).map(function (id) { var s = segPorId(id); return { c: s.color, t: s.t }; })
-    });
     if (totMes) r.graficos.push({
-      tipo: 'barras', ancho: 'completo', titulo: 'Calendario comercial: muestras de suelo por mes (cuándo contactar)', cats: meses, vals: porMes, unidad: 'muestras',
+      tipo: 'barras', ancho: 'medio', titulo: 'Calendario: muestras de suelo por mes (cuándo comunicar)', cats: meses, vals: porMes, unidad: 'muestras',
       colores: porMes.map(function (n) { return n >= top2[1].n && n > 0 ? '#8F131C' : '#5B5B5F'; }), estados: porMes.map(function (n) { return pct(n, totMes) + '% del año'; }),
       detalles: meses.map(function () { return ''; }), lineas: [],
       leyenda: [{ c: '#8F131C', t: 'Meses de mayor actividad' }, { c: '#5B5B5F', t: 'Resto del año' }]
     });
 
-    // ----- Tabla de oportunidades -----
+    // ----- Tabla: qué decirle a cada cliente -----
     var body = [], est = [];
-    orden.forEach(function (o) {
-      var s = segPorId(o.seg);
-      body.push([o.campo, s.t, o.campania,
-        { t: fmt(o.ha, 0), html: '<input type="text" inputmode="decimal" class="input-ha" data-op="ha" data-campo="' + esc(o.campo) + '" value="' + esc(fmt(o.ha, 0)) + '" aria-label="Hectáreas de ' + esc(o.campo) + '">' },
-        o.productos.map(function (p) { return p.unidad === 'ha' ? p.corto : p.corto + ' ' + fmt(o.kg[p.id], 0); }).join(' · ') || '–',
-        plata(valor(o)), s.accion,
-        { t: '', html: '<button type="button" class="boton-texto" data-msg="' + esc(o.campo) + '">Copiar</button> <a class="boton-texto" target="_blank" rel="noopener" href="https://wa.me/?text=' + encodeURIComponent(ultimosMensajes[o.campo] = mensajeWhatsApp(o)) + '">WhatsApp</a>' }]);
-      est.push([null, null, null, null, null, null, null, null]);
+    nec.slice().sort(function (a, b) { return b.hallazgos.length - a.hallazgos.length || ordenarTexto(a.campo, b.campo); }).forEach(function (o) {
+      var s = segPorId(o.seg), msg = mensajeWhatsApp(o);
+      ultimosMensajes[o.campo] = msg;
+      body.push([o.campo, o.campania, o.hallazgos.length ? o.hallazgos.map(function (h) { return h.split(':')[0]; }).join(', ') : 'Sin problemas marcados', s.t, ETIQUETA_SEG[o.seg].resaltar,
+        { t: '', html: '<button type="button" class="boton-texto" data-msg="' + esc(o.campo) + '">Copiar</button> <a class="boton-texto" target="_blank" rel="noopener" href="https://wa.me/?text=' + encodeURIComponent(msg) + '">WhatsApp</a>' }]);
+      est.push([null, null, o.hallazgos.length >= 3 ? 'bajo' : o.hallazgos.length ? 'medio' : 'bien', null, null, null]);
     });
-    r.tablas.push({
-      titulo: 'Oportunidades por campo (de mayor a menor potencial)',
-      head: ['Campo', 'Segmento', 'Últ. análisis', 'Ha', 'Necesita (kg/ha)', 'Potencial', 'Acción sugerida', 'Mensaje'], body: body, estados: est, numeros: [3, 5], maxFilas: 20, soloPantalla: [7],
-      nota: 'Potencial = kg/ha × hectáreas × precio. MAP = reposición + construcción de P hasta el objetivo del Panel experto; urea = N objetivo menos N de nitratos (0–20 cm); yeso según azufre y sodio; dolomita si el pH es ácido; zinc por ha si es bajo. Estimaciones orientativas para planificar la venta, no reemplazan la recomendación del asesor.'
-    });
-    r.planTitulo = 'Supuestos (hectáreas y precios de referencia en US$)';
-    r.planOpciones = '<label>Ha por campo (si no se indica) <input type="text" inputmode="decimal" data-op="hadef" value="' + esc(fmt(comCfg.haDef, 0)) + '"></label>' +
-      '<label>Reposición MAP (kg/ha) <input type="text" inputmode="decimal" data-op="repo" value="' + esc(fmt(comCfg.reposicion, 0)) + '"></label>' +
-      '<label>N objetivo (kg N/ha) <input type="text" inputmode="decimal" data-op="nobj" value="' + esc(fmt(comCfg.nObj, 0)) + '"></label>' +
-      PRODUCTOS.map(function (p) { return '<label>' + esc(p.corto) + ' (US$/' + p.unidad + ') <input type="text" inputmode="decimal" data-op="precio" data-prod="' + p.id + '" value="' + esc(String(comCfg.precios[p.id]).replace('.', ',')) + '"></label>'; }).join('');
-    r.puntos.push('<i>Estrategias sugeridas a partir de los análisis de suelo, con hectáreas y precios supuestos. Son estimaciones para planificar la venta; la recomendación agronómica final la da el asesor.</i>');
+    r.tablas.push({ titulo: 'Qué resaltarle a cada cliente (última campaña de cada campo)', head: ['Campo', 'Últ. análisis', 'Problemas detectados', 'Segmento', 'Qué resaltar', 'Mensaje'], body: body, estados: est, maxFilas: 20, soloPantalla: [5],
+      nota: 'Cada mensaje usa el análisis del propio cliente. Los segmentos salen del índice de fertilidad y de los nutrientes en nivel bajo (ver Panel experto).' });
+    r.puntos.push('<i>Sugerencias de marketing basadas en los análisis cargados. La recomendación agronómica final la da el asesor.</i>');
     return r;
   }
 
@@ -1041,6 +1031,9 @@
   var CULTIVOS = { maiz: 'maíz', soja: 'soja', trigo: 'trigo' };
   var ESTRATEGIAS = [
     {
+      pilares: ['Cada gránulo con zinc: llega parejo a todo el lote', 'Sin labor extra: va en la misma pasada de la siembra'],
+      desarrollo: 'Línea de mezclas con zinc con nombre propio, en dos niveles (estándar con PROCOTE Zn y «plus» con zinc + PROCOTE), con el % de zinc bien visible en la propuesta y en el remito.',
+      piezas: 'Infografía «el X% de nuestra zona tiene zinc bajo»; video corto del recubrimiento en planta (gránulos antes y después); imagen comparando el gránulo recubierto con el gránulo de zinc suelto en la línea; ficha de una página para el CREA; resultados de las franjas como caso.',
       id: 'zn', nut: 'zn', titulo: 'Mezclas con zinc (PROCOTE Zn)', producto: 'mezcla con PROCOTE Zn', cultivo: 'maiz', precio: 180, rinde: 8, costo: 8, conLitros: true,
       lema: 'Cada gránulo con zinc',
       posicion: 'PROCOTE Zn (YaraVita) es una suspensión concentrada de zinc (aprox. 700 g Zn/L) que se pulveriza sobre el fertilizante en la mezcladora y recubre cada gránulo. Así el zinc llega parejo a toda la línea de siembra, a diferencia de mezclar un fertilizante granulado de zinc, que aporta pocos gránulos por metro y puede separarse en la mezcla.',
@@ -1052,6 +1045,9 @@
       mensaje: 'Te proponemos tu mezcla de siembra con PROCOTE Zn de Yara: el zinc va recubriendo cada gránulo, así llega parejo a todo el lote y se aplica en la misma pasada.'
     },
     {
+      pilares: ['El fósforo se acumula: es inversión en el campo, no gasto', 'Dosis por ambiente: más donde falta, menos donde sobra'],
+      desarrollo: 'Mezclas fosforadas por ambiente (loma, media loma, bajo) y un plan de construcción en 2–3 campañas con seguimiento.',
+      piezas: 'Gráfico de evolución del fósforo del propio campo; mapa de ambientes con su dosis; caso de un campo que recuperó su nivel; nota corta «construir y reponer».',
       id: 'p', nut: 'p', titulo: 'Fósforo: MAP y mezclas fosforadas', producto: 'mezcla fosforada (MAP)', cultivo: 'maiz', precio: 180, rinde: 8, costo: 80,
       lema: 'El fósforo es capital del campo',
       posicion: 'El fósforo se acumula en el suelo: lo que se aplica de más queda para las campañas siguientes. Construir el nivel y después reponer lo que se lleva cada cosecha protege el rinde y el valor de la tierra.',
@@ -1063,6 +1059,9 @@
       mensaje: 'Te proponemos una mezcla fosforada a medida de cada ambiente, para construir el nivel donde da bajo y reponer lo que se lleva la cosecha.'
     },
     {
+      pilares: ['Problema silencioso: el cultivo no siempre lo muestra', 'Simple y barato: va en la misma mezcla'],
+      desarrollo: 'Mezcla NPS de la zona (y versión con zinc) como producto estándar de entrada para clientes nuevos.',
+      piezas: 'Infografía del % de azufre bajo en la zona; fotos de franjas con y sin azufre; mensaje corto con el punto de equilibrio en kilos de grano.',
       id: 's', nut: 's', titulo: 'Azufre: yeso y mezclas azufradas', producto: 'yeso o mezcla NPS', cultivo: 'soja', precio: 300, rinde: 3, costo: 15,
       lema: 'Azufre: barato y con respuesta frecuente',
       posicion: 'Con materia orgánica baja el suelo aporta poco azufre. Es una corrección de bajo costo por hectárea, con respuesta frecuente en soja, trigo y maíz; el yeso además aporta calcio.',
@@ -1074,6 +1073,9 @@
       mensaje: 'Te proponemos sumar azufre (yeso o mezcla NPS) en la misma pasada: es una corrección de bajo costo por hectárea.'
     },
     {
+      pilares: ['El análisis dice cuánto nitrógeno ya hay: ni de más ni de menos', 'Fraccionar en suelos arenosos para no perderlo'],
+      desarrollo: 'Servicio de recomendación de nitrógeno por lote (muestreo de nitratos antes de sembrar + dosis sugerida), unido a la provisión del fertilizante.',
+      piezas: 'Tabla simple «nitratos del análisis → dosis sugerida»; recordatorio por WhatsApp para muestrear antes de sembrar; caso de ahorro o de rinde ganado.',
       id: 'n', nut: 'n', titulo: 'Nitrógeno: urea y fuentes nitrogenadas', producto: 'urea / fuente nitrogenada', cultivo: 'maiz', precio: 180, rinde: 8, costo: 90,
       lema: 'La dosis justa según el análisis',
       posicion: 'El nitrato del análisis dice cuánto nitrógeno ya hay en el suelo. Con ese dato la dosis se ajusta: ni de más (plata tirada) ni de menos (rinde perdido).',
@@ -1085,6 +1087,9 @@
       mensaje: 'Te proponemos ajustar la dosis de nitrógeno a lo que ya tiene el suelo, para no poner de más ni de menos.'
     },
     {
+      pilares: ['El suelo ácido no aprovecha lo que se le aplica', 'Una corrección que dura varias campañas'],
+      desarrollo: 'Servicio de encalado completo: diagnóstico, dosis por lote, provisión, aplicación y control de pH.',
+      piezas: 'Gráfico «disponibilidad de nutrientes según el pH»; antes y después de un campo; nota técnica corta para el CREA.',
       id: 'ph', nut: 'ph', titulo: 'Encalado: dolomita y calcita', producto: 'dolomita o calcita', cultivo: 'soja', precio: 300, rinde: 3, costo: 100,
       lema: 'Corregir la acidez libera los nutrientes',
       posicion: 'Con pH ácido bajan la disponibilidad de fósforo, calcio y magnesio y la nodulación de la soja. El encalado corrige por varias campañas y hace rendir mejor el resto de los fertilizantes.',
@@ -1138,27 +1143,27 @@
     var ha = porCampo.reduce(function (a, o) { return a + (o.k === 'bajo' ? haDe(o.campo) : 0); }, 0);
 
     // ----- Indicadores -----
-    r.kpis.push({ t: 'Muestras con ' + n.corto, v: String(vz.length), sub: porCampo.length + ' campos' + (grupo.length ? ' del grupo' : '') });
+    var totalBusq = grupo.length ? lista.filter(function (x) { return grupo.indexOf(x.campo) >= 0; }).length : lista.length;
+    r.kpis.push({ t: 'Análisis con dato de ' + n.corto, v: String(vz.length), sub: 'de ' + totalBusq + ' análisis' + (grupo.length ? ' del grupo' : '') + ' · ' + porCampo.length + ' campos' });
     r.kpis.push({ t: 'Muestras con nivel ' + problema, v: pctDef + '%', sub: (n.tipo === 'menos' ? 'más de ' : 'menos de ') + fmt(umbral) + u, k: pctDef >= 50 ? 'bajo' : pctDef >= 25 ? 'medio' : 'bien' });
     r.kpis.push({ t: n.nombre + ' (mediana)', v: fmt(med) + u, sub: 'rango ' + fmt(Math.min.apply(null, vz)) + ' a ' + fmt(Math.max.apply(null, vz)) + u, k: cMed && cMed.k });
-    r.kpis.push({ t: 'Campos con nivel ' + problema, v: camposDef.length + ' de ' + porCampo.length, sub: fmt(ha, 0) + ' ha estimadas', k: camposDef.length / porCampo.length >= 0.5 ? 'bajo' : 'medio' });
+    r.kpis.push({ t: 'Campos con nivel ' + problema, v: camposDef.length + ' de ' + porCampo.length, sub: 'mediana de su última campaña', k: camposDef.length / porCampo.length >= 0.5 ? 'bajo' : 'medio' });
     if (kgGrano != null) r.kpis.push({ t: 'Se paga con', v: fmt(kgGrano, 0) + ' kg de ' + cultivo + '/ha', sub: equilibrio != null ? fmt(equilibrio, 1) + '% de un rinde de ' + fmt(cfg.rinde) + ' t/ha' : '', k: 'bien' });
     if (pctProcote != null) {
       r.kpis.push({ t: 'Mezcla + PROCOTE Zn', v: fmt(pctProcote, 2) + '% Zn', sub: fmt(cfg.litros) + ' L/t · ' + fmt(kgZn1, 2) + ' kg Zn/ha con ' + fmt(cfg.dosis, 0) + ' kg/ha' });
       if (cfg.znBase) r.kpis.push({ t: 'Mezcla con Zn + PROCOTE', v: fmt(pctConZn, 2) + '% Zn', sub: fmt(cfg.znBase, 2) + '% + ' + fmt(pctProcote, 2) + '% · ' + fmt(kgZn2, 2) + ' kg Zn/ha con ' + fmt(cfg.dosis, 0) + ' kg/ha' });
     }
-    if (ha) r.kpis.push({ t: 'Potencial (lotes con problema)', v: plataCorta(ha * cfg.costo), sub: fmt(ha, 0) + ' ha × ' + plata(cfg.costo) + '/ha', k: 'bien' });
 
     // ----- Los datos (para presentar) -----
     concluir(pctDef >= 50 ? 'critico' : pctDef >= 25 ? 'atencion' : 'info', n.nombre + ': ' + pctDef + '% de las muestras con nivel ' + problema,
-      'Mediana ' + fmt(med) + u + ' en ' + vz.length + ' muestras de ' + porCampo.length + ' campos (' + textoRango(n) + '). ' + camposDef.length + ' campos tienen su mediana en nivel ' + problema + '.',
+      'Sobre ' + vz.length + ' análisis con dato de ' + n.corto + ' (de ' + totalBusq + ' en la búsqueda): mediana ' + fmt(med) + u + ', ' + porCampo.length + ' campos (' + textoRango(n) + '). ' + camposDef.length + ' campos tienen su mediana en nivel ' + problema + '.',
       pctDef >= 50 ? 'Mensaje para el grupo: no es un problema de un lote, es un problema de la zona.' : 'Mensaje: hay lotes puntuales para corregir; el análisis dice cuáles.');
     var camps = unico(L.map(function (x) { return x.campania; })).sort(ordenarTexto).filter(function (c) { return L.filter(function (x) { return x.campania === c; }).length >= 5; });
     var meds = camps.map(function (c) { return cuantil(valoresDe(L.filter(function (x) { return x.campania === c; }), E.nut), 0.5); });
     if (camps.length >= 2) {
       var mejora = n.tipo === 'menos' ? meds[meds.length - 1] < meds[0] : meds[meds.length - 1] > meds[0];
       concluir('info', 'Evolución por campaña (mediana)', camps.map(function (c, i) { return c + ' ' + fmt(meds[i]); }).join(' > ') + u + '.',
-        mejora ? 'Mejoró en el período; conviene sostener la reposición.' : 'No mejora con el tiempo: lo que se aplica no alcanza a reponer lo que se lleva la cosecha.');
+        mejora && !esProblema(meds[meds.length - 1]) ? 'Mejoró en el período; conviene sostener la reposición.' : mejora ? 'Mejoró apenas y sigue en nivel ' + problema + ': lo que se aplica todavía no alcanza.' : 'No mejora con el tiempo: lo que se aplica no alcanza a reponer lo que se lleva la cosecha.');
     }
     var fam = familiaAmbientes(L, 4);
     if (fam.length >= 2) {
@@ -1172,7 +1177,9 @@
       var pe = pearson(pts.map(function (m) { return m.v[x]; }), pts.map(function (m) { return m.v[E.nut]; }));
       if (!pe || Math.abs(pe.r) < 0.2) return;
       var nx = nutPorId(x);
-      concluir('info', 'Relación con ' + nx.nombre.toLowerCase() + ': r = ' + fmt(pe.r, 2) + ' (' + pts.length + ' muestras)', (E.notas[x] ? E.notas[x] + ' ' : '') + 'En estos datos, a más ' + nx.nombre.toLowerCase() + ', ' + (pe.r > 0 ? 'más' : 'menos') + ' ' + n.nombre.toLowerCase() + '.', '');
+      var nota = E.notas[x] || '';
+      if (E.id === 'zn' && x === 'p' && pe.r > 0) nota = 'Van juntos: los lotes más fertilizados con fósforo también tienen más zinc, pero la mayoría sigue por debajo del umbral.';
+      concluir('info', 'Relación con ' + nx.nombre.toLowerCase() + ': r = ' + fmt(pe.r, 2) + ' (' + pts.length + ' muestras)', (nota ? nota + ' ' : '') + 'En estos datos, a más ' + nx.nombre.toLowerCase() + ', ' + (pe.r > 0 ? 'más' : 'menos') + ' ' + n.nombre.toLowerCase() + '.', '');
     });
     if (E.id === 'zn') {
       var pAlto = L.filter(function (x) { return x.v.p != null && x.v.p >= 30 && esProblema(x.v.zn); }).length;
@@ -1183,13 +1190,21 @@
     if (sinDato && conBase.length && sinDato / conBase.length >= 0.2) concluir('accion', 'Falta ' + n.nombre.toLowerCase() + ' en el ' + pct(sinDato, conBase.length) + '% de los análisis', 'Muchos análisis no lo incluyen.', 'Acción: ofrecer ese análisis sin cargo en el próximo muestreo. Suma datos y genera la próxima venta.');
 
     // ----- Estrategia de marketing y ventas -----
+    concluir('oportunidad', 'Qué resaltar: 3 mensajes clave',
+      '1) Dato propio: en la zona el ' + pctDef + '% de los análisis tiene ' + n.nombre.toLowerCase() + ' en nivel ' + problema + '. 2) ' + E.pilares[0] + '. 3) ' + E.pilares[1] + '.',
+      'Repetir siempre los mismos tres mensajes en todas las piezas y conversaciones: la repetición construye la marca.');
     concluir('oportunidad', 'Posicionamiento: «' + E.lema + '»', E.posicion, 'Propuesta MORERO: ' + E.propuesta);
+    concluir('oportunidad', 'Desarrollo de producto', E.desarrollo, 'Un producto con nombre propio y una ficha simple se recuerda y se pide más fácil que «la mezcla con un poco de esto».');
+    concluir('accion', 'Piezas de comunicación', E.piezas.replace('X%', pctDef + '%'), 'Canales: reunión CREA, día de campo, WhatsApp, redes, radio local y visita del asesor con el análisis impreso.');
+    concluir('accion', 'Embudo para captar y convencer',
+      'Atraer: el dato de la zona sobre ' + n.nombre.toLowerCase() + '. Interesar: análisis o interpretación sin cargo. Convencer: franjas en su campo y resultados de vecinos. Cerrar: propuesta escrita con su propio análisis. Fidelizar: re-muestreo y seguimiento del resultado.',
+      'Ponerle una meta a cada etapa: cuántos productores ven el dato, cuántos piden su análisis, cuántos hacen la franja y cuántos compran.');
     if (pctProcote != null) concluir('oportunidad', 'Dos niveles de oferta según el análisis',
       'Mezcla + PROCOTE Zn (' + fmt(cfg.litros) + ' L/t): ' + fmt(pctProcote, 2) + '% de Zn, ' + fmt(kgZn1, 2) + ' kg Zn/ha con ' + fmt(cfg.dosis, 0) + ' kg/ha de mezcla.' +
       (cfg.znBase ? ' Mezcla con zinc (' + fmt(cfg.znBase, 2) + '%) + PROCOTE Zn: ' + fmt(pctConZn, 2) + '% de Zn, ' + fmt(kgZn2, 2) + ' kg Zn/ha.' : ''),
       'Estrategia: la versión con PROCOTE como estándar para lotes con zinc suficiente o moderado, y la mezcla con zinc + PROCOTE para los lotes deficientes (' + camposDef.length + ' campos). Ofrecer las dos opciones ayuda al productor a decidir y sube el ticket. ' +
       'Ojo técnico: es un aporte localizado en la línea de siembra, distribuido en cada gránulo; en lotes muy deficientes (menos de ' + fmt(bajo / 2) + ' ppm) el asesor puede indicar una dosis mayor de zinc. Conviene decirlo en el CREA antes de que lo pregunten.');
-    if (kgGrano != null) concluir('oportunidad', 'Economía: con ' + fmt(kgGrano, 0) + ' kg de ' + cultivo + ' por hectárea se paga',
+    if (kgGrano != null) concluir('oportunidad', 'Argumento económico para el productor: se paga con ' + fmt(kgGrano, 0) + ' kg de ' + cultivo + ' por hectárea',
       'Costo ' + plata(cfg.costo) + '/ha y ' + cultivo + ' a ' + plata(cfg.precio) + '/t' + (equilibrio != null ? ': alcanza con ' + fmt(equilibrio, 1) + '% más de rinde sobre ' + fmt(cfg.rinde) + ' t/ha.' : '.'),
       'Mostrar el punto de equilibrio y pedir que lo validen en su propio campo. Ajustá costo, precio y rinde abajo.');
     var candidatos = porCampo.filter(function (o) { return o.k === 'bajo'; }).sort(function (a, b) { return n.tipo === 'menos' ? b.val - a.val : a.val - b.val; }).slice(0, 6);
@@ -1199,7 +1214,7 @@
     concluir('accion', 'A quién apuntar primero', E.apuntar + ' ' + camposDef.length + ' campos de la base tienen nivel ' + problema + '.', 'Usar la tabla de abajo: cada campo tiene su mensaje de WhatsApp armado con su propio dato.');
     concluir('accion', 'Calendario comercial', E.calendario, 'Asegurar stock y turnos de planta antes del pico de pedidos.');
     concluir('objecion', 'Objeciones esperables y respuestas', E.objeciones + (kgGrano != null ? ' Punto de equilibrio: ' + fmt(kgGrano, 0) + ' kg de ' + cultivo + '/ha.' : ''), 'Llevar a la reunión el gráfico de distribución del grupo y el cálculo de equilibrio.');
-    var ordNiv = { critico: 0, atencion: 1, oportunidad: 2, accion: 3, info: 4, objecion: 5 };
+    var ordNiv = { critico: 0, atencion: 1, oportunidad: 2, accion: 3, objecion: 4, info: 5 };
     C.sort(function (a, b) { return ordNiv[a.nivel] - ordNiv[b.nivel]; });
 
     // ----- Gráficos -----
@@ -1264,8 +1279,8 @@
       est.push([null, null, null, o.k, o.k, null, null, null, null, null]);
     });
     r.tablas.push({ titulo: 'Campos ordenados por ' + n.nombre.toLowerCase() + ' (mediana de la última campaña)', head: ['Campo', 'Campaña', 'Muestras', n.corto + (n.unidad ? ' (' + n.unidad + ')' : ''), 'Estado', 'pH', 'MO (%)', 'P (ppm)', 'Propuesta', 'Mensaje'], body: body, estados: est, numeros: [2, 3, 5, 6, 7], maxFilas: 20, soloPantalla: [9],
-      nota: (E.conLitros ? 'PROCOTE Zn (YaraVita): suspensión concentrada de zinc (aprox. 700 g Zn/L) que se pulveriza sobre el fertilizante en la mezcladora; cada litro por tonelada suma 0,07% de Zn (3 L/t = 0,21%). ' : '') + 'Costo por hectárea, precio y rinde son supuestos editables; las hectáreas son las del Panel comercial general.' });
-    r.planTitulo = 'Supuestos para la presentación';
+      nota: (E.conLitros ? 'PROCOTE Zn (YaraVita): suspensión concentrada de zinc (aprox. 700 g Zn/L) que se pulveriza sobre el fertilizante en la mezcladora; cada litro por tonelada suma 0,07% de Zn (3 L/t = 0,21%). ' : '') + 'Solo se incluyen los análisis que tienen dato de ' + n.nombre.toLowerCase() + '.' });
+    r.planTitulo = 'Supuestos para el argumento económico';
     r.planOpciones = '<label>Cultivo <select data-op="ecultivo">' + Object.keys(CULTIVOS).map(function (k) { return '<option value="' + k + '"' + (cfg.cultivo === k ? ' selected' : '') + '>' + CULTIVOS[k] + '</option>'; }).join('') + '</select></label>' +
       '<label>Costo del producto (US$/ha) <input type="text" inputmode="decimal" data-op="ecosto" value="' + esc(String(cfg.costo).replace('.', ',')) + '"></label>' +
       '<label>Precio del grano (US$/t) <input type="text" inputmode="decimal" data-op="eprecio" value="' + esc(fmt(cfg.precio, 0)) + '"></label>' +
@@ -1273,7 +1288,7 @@
       (E.conLitros ? '<label>Dosis de mezcla (kg/ha) <input type="text" inputmode="decimal" data-op="edosis" value="' + esc(fmt(cfg.dosis, 0)) + '"></label>' +
         '<label>L de PROCOTE Zn por t <input type="text" inputmode="decimal" data-op="elitros" placeholder="Completar" value="' + (cfg.litros == null ? '' : esc(String(cfg.litros).replace('.', ','))) + '"></label>' +
         '<label>Zn propio de la mezcla (%) <input type="text" inputmode="decimal" data-op="ezbase" value="' + esc(String(cfg.znBase || 0).replace('.', ',')) + '"></label>' : '');
-    r.puntos.push('<i>Datos de los análisis cargados y estrategia sugerida. Costo, precio, rinde y dosis son supuestos: ajustalos antes de presentar. La recomendación agronómica final la da el asesor.</i>');
+    r.puntos.push('<i>Datos de los análisis con ' + esc(n.nombre.toLowerCase()) + ' y estrategia de marketing sugerida. Costo, precio y rinde son supuestos para el argumento económico: ajustalos antes de presentar. La recomendación agronómica final la da el asesor.</i>');
     return r;
   }
 
@@ -1285,9 +1300,14 @@
     return r;
   }
   function armarVista() {
-    var lista = filtrados();
+    var lista = filtrados(), nf = nutFiltro();
+    var E = estado.vista === 'comercial' ? estPorId(comCfg.estrategia) : null;
+    var nutBase = E ? E.nut : nf;
+    var listaEval = nf && !E ? lista.filter(function (x) { return x.v[nf] != null; }) : lista;
     var f = { comercial: vistaComercialGeneral, panel: vistaPanel, general: vistaGeneral, campo: vistaCampo, nutriente: vistaNutriente, comparar: vistaComparar }[estado.vista];
-    var r = f(lista);
+    var r = f(listaEval);
+    var nb = nutBase && nutPorId(nutBase);
+    r.base = { total: lista.length, con: nb ? lista.filter(function (x) { return x.v[nb.id] != null; }).length : null, n: nb };
     if (lista.length && estado.vista !== 'panel' && estado.vista !== 'comercial') r.puntos.push('<i>Evaluación orientativa según los rangos cargados en «Nutrientes y rangos». Confirmar las decisiones con el asesor agronómico.</i>');
     if (!r.graficos) r.graficos = r.grafico ? [r.grafico] : [];
     return r;
@@ -1428,12 +1448,16 @@
   function dibujarRanking(ctx, g, W, H, fuente, hits) {
     ctx.font = '12px ' + fuente;
     var izq = Math.min(W * 0.42, Math.max.apply(null, g.cats.map(function (c) { return ctx.measureText(c).width; })) + 12);
-    var arriba = 32, abajo = 22, der = g.moneda ? 78 : 50, ancho = W - izq - der, alto = H - arriba - abajo;
-    var paso = alto / g.cats.length, barra = Math.min(22, paso * 0.7), max = g.max || Math.max.apply(null, g.vals) || 1;
+    var paso, barra, max = g.max || escalaEje(0, Math.max.apply(null, g.vals) || 1, 4).max;
+    ctx.font = '600 11px ' + fuente;
+    var der = Math.max(40, Math.max.apply(null, g.vals.map(function (v) { return ctx.measureText(g.moneda ? plataCorta(v) : g.sufijo != null || g.decimales != null ? fmt(v, g.decimales != null ? g.decimales : 0) + (g.sufijo || '') : fmt(v, 0)).width; })) + 12);
+    var arriba = 32, abajo = 22, ancho = W - izq - der, alto = H - arriba - abajo;
+    paso = alto / g.cats.length; barra = Math.min(22, paso * 0.7);
     ctx.strokeStyle = '#ececed'; ctx.lineWidth = 1; ctx.fillStyle = '#6b6b70'; ctx.font = '11px ' + fuente; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
     function eje(v) { return g.moneda ? (v >= 1e6 ? fmt(v / 1e6, 1) + ' M' : v >= 1e3 ? fmt(v / 1e3, 0) + ' mil' : fmt(v, 0)) : fmt(v); }
     function valorTxt(v) { return g.moneda ? plataCorta(v) : g.sufijo != null || g.decimales != null ? fmt(v, g.decimales != null ? g.decimales : 0) + (g.sufijo || '') : fmt(v, 0); }
-    [0, 0.25, 0.5, 0.75, 1].forEach(function (f) { var x = Math.round(izq + ancho * f) + .5; ctx.beginPath(); ctx.moveTo(x, arriba); ctx.lineTo(x, arriba + alto); ctx.stroke(); ctx.fillText(eje(max * f), x, arriba + alto + 6); });
+    var escR = escalaEje(0, max, 4); max = escR.max;
+    escR.ticks.forEach(function (t) { var x = Math.round(izq + ancho * t / max) + .5; ctx.beginPath(); ctx.moveTo(x, arriba); ctx.lineTo(x, arriba + alto); ctx.stroke(); ctx.fillText(eje(t), x, arriba + alto + 6); });
     g.cats.forEach(function (c, i) {
       var y = arriba + paso * i + (paso - barra) / 2, w = Math.max(2, ancho * g.vals[i] / max), r = Math.min(4, barra / 2, w);
       ctx.fillStyle = '#222226'; ctx.font = '12px ' + fuente; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
@@ -1574,12 +1598,15 @@
     $('carga-estado').innerHTML = datos.length
       ? 'Hay <strong>' + datos.length + '</strong> análisis cargados de <strong>' + unico(datos.map(function (r) { return r.campo; })).length + '</strong> campos.'
       : 'Todavía no hay análisis cargados. Empezá importando un Excel o agregando uno a mano.';
-    $('f-resumen').textContent = datos.length ? 'Coinciden ' + lista.length + ' de ' + datos.length + ' análisis.' : '';
+    var nfR = nutPorId(nutFiltro());
+    $('f-resumen').textContent = datos.length ? 'Coinciden ' + lista.length + ' de ' + datos.length + ' análisis' + (nfR ? ' · con datos de ' + nfR.nombre.toLowerCase() + ': ' + lista.filter(function (x) { return x.v[nfR.id] != null; }).length : '') + '.' : '';
     document.querySelectorAll('.pestana').forEach(function (b) { b.setAttribute('aria-selected', b.dataset.vista === estado.vista ? 'true' : 'false'); });
 
     var r = armarVista();
     reporteActual = r;
     $('vista-opciones').innerHTML = r.opciones || '';
+    $('eval-base').innerHTML = r.base && r.base.total ? 'Análisis en la búsqueda: <strong>' + r.base.total + '</strong>' +
+      (r.base.n ? ' · con datos de ' + esc(r.base.n.nombre.toLowerCase()) + ': <strong>' + r.base.con + '</strong>. La evaluación usa solo esos ' + r.base.con + '.' : '.') : '';
     $('panel-kpis').innerHTML = (r.kpis || []).map(kpiHTML).join('');
     var CMAX = 6, nc = r.conclusiones ? r.conclusiones.length : 0;
     $('panel-conclusiones').innerHTML = nc ? '<p class="eval-titulo">Conclusiones clave <small>(' + nc + ', de mayor a menor prioridad)</small></p>' +
@@ -1926,7 +1953,7 @@
       doc.setDrawColor.apply(doc, BORDO); doc.setLineWidth(0.8); doc.line(M, y, W - M, y);
       y += 6;
       doc.setFontSize(9); doc.setTextColor.apply(doc, GRIS);
-      var lf = doc.splitTextToSize('Selección: ' + descripcionFiltros(), W - 2 * M);
+      var lf = doc.splitTextToSize('Selección: ' + descripcionFiltros() + (r.base && r.base.total ? ' · Análisis en la búsqueda: ' + r.base.total + (r.base.n ? ' · con datos de ' + r.base.n.nombre.toLowerCase() + ': ' + r.base.con + ' (la evaluación usa solo estos)' : '') : ''), W - 2 * M);
       doc.text(lf, M, y); y += lf.length * 4 + 3;
 
       // Indicadores

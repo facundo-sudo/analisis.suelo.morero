@@ -315,3 +315,7 @@ td.c-alto { background: var(--alto-fondo); }
   .nut-fila .nut-nombre { grid-column: 1 / -1; }
   .acciones .boton { flex: 1 1 100%; }
 }
+
+.eval-base { margin: 0 0 12px; padding: 8px 12px; background: var(--gris-claro); border-radius: 8px; color: var(--gris); font-size: .92rem; }
+.eval-base:empty { display: none; }
+.eval-base strong { color: var(--texto); }
